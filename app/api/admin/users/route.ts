@@ -1,15 +1,25 @@
-export const dynamic = "force-dynamic";
-
 
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
 import { prisma } from "@/app/lib/prisma";
 
-const secret = new TextEncoder().encode(process.env.AUTH_SECRET);
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    // Check authentication configuration
+    const authSecret = process.env.AUTH_SECRET;
+
+    if (!authSecret) {
+      return NextResponse.json(
+        { error: "Authentication configuration missing." },
+        { status: 500 }
+      );
+    }
+
+    const secret = new TextEncoder().encode(authSecret);
+
     // Check login session
     const cookieStore = await cookies();
     const token = cookieStore.get("paynext_token")?.value;
@@ -22,8 +32,17 @@ export async function GET() {
     }
 
     // Verify admin session
-    const { payload } = await jwtVerify(token, secret);
-    const userId = payload.userId;
+    let userId: unknown;
+
+    try {
+      const { payload } = await jwtVerify(token, secret);
+      userId = payload.userId;
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid or expired session." },
+        { status: 401 }
+      );
+    }
 
     if (typeof userId !== "string") {
       return NextResponse.json(
@@ -32,6 +51,7 @@ export async function GET() {
       );
     }
 
+    // Verify admin role
     const admin = await prisma.user.findUnique({
       where: { id: userId },
       select: { role: true },

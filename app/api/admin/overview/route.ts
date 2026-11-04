@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
@@ -5,10 +6,21 @@ import { prisma } from "@/app/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-const secret = new TextEncoder().encode(process.env.AUTH_SECRET);
-
 export async function GET() {
   try {
+    // Check authentication configuration
+    const authSecret = process.env.AUTH_SECRET;
+
+    if (!authSecret) {
+      return NextResponse.json(
+        { error: "Authentication configuration missing." },
+        { status: 500 }
+      );
+    }
+
+    const secret = new TextEncoder().encode(authSecret);
+
+    // Read login session cookie
     const cookieStore = await cookies();
     const token = cookieStore.get("paynext_token")?.value;
 
@@ -19,6 +31,7 @@ export async function GET() {
       );
     }
 
+    // Verify authentication token
     let userId: unknown;
 
     try {
@@ -38,6 +51,7 @@ export async function GET() {
       );
     }
 
+    // Verify admin role
     const admin = await prisma.user.findUnique({
       where: { id: userId },
       select: { role: true },
@@ -50,6 +64,7 @@ export async function GET() {
       );
     }
 
+    // Fetch dashboard statistics
     const [
       totalUsers,
       totalTransactions,
@@ -60,26 +75,35 @@ export async function GET() {
       recentLogs,
     ] = await Promise.all([
       prisma.user.count(),
+
       prisma.transaction.count(),
+
       prisma.kycApplication.count({
         where: { status: "PENDING" },
       }),
+
       prisma.fraudAlert.count({
         where: { status: "REVIEW" },
       }),
+
       prisma.transaction.findMany({
         take: 5,
         orderBy: { createdAt: "desc" },
         include: {
           sender: {
-            select: { fullName: true, email: true },
+            select: {
+              fullName: true,
+              email: true,
+            },
           },
         },
       }),
+
       prisma.fraudAlert.findMany({
         take: 5,
         orderBy: { createdAt: "desc" },
       }),
+
       prisma.securityLog.findMany({
         take: 10,
         orderBy: { createdAt: "desc" },
@@ -95,6 +119,7 @@ export async function GET() {
       recentAlerts,
       recentLogs,
     });
+
   } catch (error) {
     console.error("Admin overview error:", error);
 
