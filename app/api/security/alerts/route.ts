@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
 import { prisma } from "@/app/lib/prisma";
 
-export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {

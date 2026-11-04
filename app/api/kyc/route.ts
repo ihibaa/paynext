@@ -4,7 +4,7 @@ import { jwtVerify } from "jose";
 import { createHash } from "crypto";
 import { prisma } from "@/app/lib/prisma";
 
-export const dynamic = "force-dynamic";
+
 
 async function getAuthenticatedUser(): Promise<string | null> {
   const cookieStore = await cookies();
