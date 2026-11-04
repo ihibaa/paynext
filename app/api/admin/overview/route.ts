@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
 import { prisma } from "@/app/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 const secret = new TextEncoder().encode(process.env.AUTH_SECRET);
 
 export async function GET() {
@@ -17,8 +19,17 @@ export async function GET() {
       );
     }
 
-    const { payload } = await jwtVerify(token, secret);
-    const userId = payload.userId;
+    let userId: unknown;
+
+    try {
+      const { payload } = await jwtVerify(token, secret);
+      userId = payload.userId;
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid or expired session." },
+        { status: 401 }
+      );
+    }
 
     if (typeof userId !== "string") {
       return NextResponse.json(
@@ -76,12 +87,10 @@ export async function GET() {
     ]);
 
     return NextResponse.json({
-      stats: {
-        totalUsers,
-        totalTransactions,
-        pendingKyc,
-        totalFraudAlerts,
-      },
+      totalUsers,
+      totalTransactions,
+      pendingKyc,
+      totalFraudAlerts,
       recentTransactions,
       recentAlerts,
       recentLogs,
@@ -90,7 +99,7 @@ export async function GET() {
     console.error("Admin overview error:", error);
 
     return NextResponse.json(
-      { error: "Unable to load admin dashboard." },
+      { error: "Unable to load admin overview data." },
       { status: 500 }
     );
   }

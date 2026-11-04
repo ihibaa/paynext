@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
 import { createHash } from "crypto";
-import { prisma } from "../../lib/prisma";
+import { prisma } from "@/app/lib/prisma";
 
-async function getAuthenticatedUser() {
+export const dynamic = "force-dynamic";
+
+async function getAuthenticatedUser(): Promise<string | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get("paynext_token")?.value;
 
@@ -18,10 +20,15 @@ async function getAuthenticatedUser() {
     throw new Error("Authentication configuration missing.");
   }
 
-  const secretKey = new TextEncoder().encode(secret);
-  const { payload } = await jwtVerify(token, secretKey);
+  try {
+    const secretKey = new TextEncoder().encode(secret);
+    const { payload } = await jwtVerify(token, secretKey);
 
-  return payload.userId as string;
+    return typeof payload.userId === "string" ? payload.userId : null;
+  } catch {
+    // invalid / expired token
+    return null;
+  }
 }
 
 // Get current KYC status

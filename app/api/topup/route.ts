@@ -1,9 +1,8 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
 import { randomUUID } from "crypto";
-import { prisma } from "../../lib/prisma";
+import { prisma } from "@/app/lib/prisma";
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,17 +17,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const secret = new TextEncoder().encode(process.env.AUTH_SECRET);
+    const authSecret = process.env.AUTH_SECRET;
 
-    const { payload } = await jwtVerify(token, secret);
-    const userId = payload.userId as string;
+    if (!authSecret) {
+      throw new Error("AUTH_SECRET is missing.");
+    }
+
+    let userId: unknown;
+
+    try {
+      const { payload } = await jwtVerify(
+        token,
+        new TextEncoder().encode(authSecret)
+      );
+      userId = payload.userId;
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid or expired session." },
+        { status: 401 }
+      );
+    }
+
+    if (typeof userId !== "string" || !userId) {
+      return NextResponse.json(
+        { error: "Invalid session." },
+        { status: 401 }
+      );
+    }
 
     // 2. Get top-up details
     const body = await request.json();
-    const { mobile, network, amount } = body;
+    const { mobile, network } = body;
+    const amount = Number(body.amount);
 
     // 3. Validate mobile number
-    if (!/^03\d{9}$/.test(mobile)) {
+    if (typeof mobile !== "string" || !/^03\d{9}$/.test(mobile)) {
       return NextResponse.json(
         { error: "Invalid Pakistani mobile number." },
         { status: 400 }
@@ -38,7 +61,7 @@ export async function POST(request: NextRequest) {
     // 4. Validate network
     const allowedNetworks = ["Jazz", "Zong", "Telenor", "Ufone"];
 
-    if (!allowedNetworks.includes(network)) {
+    if (typeof network !== "string" || !allowedNetworks.includes(network)) {
       return NextResponse.json(
         { error: "Invalid mobile network." },
         { status: 400 }
@@ -48,7 +71,7 @@ export async function POST(request: NextRequest) {
     // 5. Validate amount
     const validAmounts = [100, 200, 300, 500, 1000, 2000];
 
-    if (!validAmounts.includes(Number(amount))) {
+    if (!validAmounts.includes(amount)) {
       return NextResponse.json(
         { error: "Invalid top-up amount." },
         { status: 400 }
@@ -65,18 +88,14 @@ export async function POST(request: NextRequest) {
         throw new Error("WALLET_NOT_FOUND");
       }
 
-      if (Number(wallet.balance) < Number(amount)) {
-        throw new Error("INSUFFICIENT_BALANCE");
-      }
-
       // Deduct amount only if sufficient balance exists
       const updated = await tx.wallet.updateMany({
         where: {
           userId,
-          balance: { gte: Number(amount) },
+          balance: { gte: amount },
         },
         data: {
-          balance: { decrement: Number(amount) },
+          balance: { decrement: amount },
         },
       });
 
@@ -89,7 +108,7 @@ export async function POST(request: NextRequest) {
         data: {
           reference: randomUUID(),
           senderId: userId,
-          amount: Number(amount),
+          amount,
           type: "MOBILE_TOPUP",
           status: "COMPLETED",
           description: `${network} mobile top-up for ${mobile}`,
@@ -113,7 +132,6 @@ export async function POST(request: NextRequest) {
       message: "Mobile top-up successful!",
       transactionId: result.reference,
     });
-
   } catch (error) {
     console.error("Top-up Error:", error);
 

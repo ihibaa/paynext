@@ -1,10 +1,11 @@
-
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
-import { prisma } from "../../../lib/prisma";
+import { prisma } from "@/app/lib/prisma";
 
-export async function GET(request: NextRequest) {
+export const dynamic = "force-dynamic";
+
+export async function GET() {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("paynext_token")?.value;
@@ -27,10 +28,19 @@ export async function GET(request: NextRequest) {
 
     const secretKey = new TextEncoder().encode(secret);
 
-    const { payload } = await jwtVerify(token, secretKey);
-    const userId = payload.userId as string;
+    let userId: unknown;
 
-    if (!userId) {
+    try {
+      const { payload } = await jwtVerify(token, secretKey);
+      userId = payload.userId;
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "Invalid or expired session." },
+        { status: 401 }
+      );
+    }
+
+    if (typeof userId !== "string" || !userId) {
       return NextResponse.json(
         { success: false, message: "Invalid authentication token." },
         { status: 401 }
@@ -85,7 +95,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       { success: false, message: "Unable to load security information." },
-      { status: 401 }
+      { status: 500 }
     );
   }
 }

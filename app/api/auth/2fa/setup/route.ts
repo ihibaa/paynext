@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
@@ -26,12 +25,20 @@ export async function POST(_request: NextRequest) {
       throw new Error("AUTH_SECRET is missing.");
     }
 
-    const { payload } = await jwtVerify(
-      token,
-      new TextEncoder().encode(authSecret)
-    );
+    let userId: unknown;
 
-    const userId = payload.userId;
+    try {
+      const { payload } = await jwtVerify(
+        token,
+        new TextEncoder().encode(authSecret)
+      );
+      userId = payload.userId;
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "Invalid or expired session." },
+        { status: 401 }
+      );
+    }
 
     if (typeof userId !== "string") {
       return NextResponse.json(
@@ -53,18 +60,17 @@ export async function POST(_request: NextRequest) {
 
     if ("twoFactorEnabled" in user && user.twoFactorEnabled) {
       return NextResponse.json(
-        { success: false, message: "Two-factor authentication is already enabled." },
+        {
+          success: false,
+          message: "Two-factor authentication is already enabled.",
+        },
         { status: 400 }
       );
     }
 
     const secret = authenticator.generateSecret();
 
-    const otpauthUrl = authenticator.keyuri(
-      user.email,
-      "PayNext",
-      secret
-    );
+    const otpauthUrl = authenticator.keyuri(user.email, "PayNext", secret);
 
     const qrCode = await QRCode.toDataURL(otpauthUrl);
 

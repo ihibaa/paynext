@@ -1,4 +1,3 @@
-
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
@@ -25,8 +24,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const { payload } = await jwtVerify(token, secret);
-    const userId = payload.userId;
+    let userId: unknown;
+
+    try {
+      const { payload } = await jwtVerify(token, secret);
+      userId = payload.userId;
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid or expired session." },
+        { status: 401 }
+      );
+    }
 
     if (typeof userId !== "string") {
       return NextResponse.json(
@@ -46,6 +54,7 @@ export async function POST(request: Request) {
       !providers[category].includes(provider) ||
       typeof consumerNumber !== "string" ||
       !/^[a-zA-Z0-9-]{5,30}$/.test(consumerNumber.trim()) ||
+      typeof amount !== "number" ||
       !Number.isFinite(amount) ||
       amount <= 0 ||
       amount > 100000
@@ -55,6 +64,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const cleanConsumerNumber = consumerNumber.trim();
 
     const payment = await prisma.$transaction(async (tx) => {
       const wallet = await tx.wallet.findUnique({
@@ -86,7 +97,7 @@ export async function POST(request: Request) {
           amount,
           type: "BILL_PAYMENT",
           status: "COMPLETED",
-          description: `${category} bill - ${provider} - Ref: ****${consumerNumber.slice(-4)}`,
+          description: `${category} bill - ${provider} - Ref: ****${cleanConsumerNumber.slice(-4)}`,
         },
       });
 
