@@ -1,59 +1,61 @@
+
 import { NextRequest, NextResponse } from "next/server";
-import { createHash, randomInt } from "crypto";
+import { randomInt } from "crypto";
 import { hash } from "bcryptjs";
+import { jwtVerify } from "jose";
 import { Resend } from "resend";
 import { prisma } from "../../../../../lib/prisma";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    // 1. Authenticate logged-in user
+    const token = request.cookies.get("paynext_token")?.value;
 
-    const cnic = String(body.cnic ?? "").replace(/[-\s]/g, "");
-
-    // Validate CNIC
-    if (!/^\d{13}$/.test(cnic)) {
+    if (!token) {
       return NextResponse.json(
-        { success: false, message: "Please enter a valid 13-digit CNIC." },
-        { status: 400 }
+        { success: false, message: "Please login first." },
+        { status: 401 }
       );
     }
 
-    // Hash CNIC to match the KYC record
-    const cnicHash = createHash("sha256")
-      .update(cnic)
-      .digest("hex");
+    const secret = process.env.AUTH_SECRET;
 
-    // Find approved KYC and its registered user
-    const kyc = await prisma.kycApplication.findFirst({
-      where: {
-        cnicHash,
-        status: "APPROVED",
-      },
+    if (!secret) {
+      throw new Error("AUTH_SECRET is missing.");
+    }
+
+    const secretKey = new TextEncoder().encode(secret);
+    const { payload } = await jwtVerify(token, secretKey);
+    const userId = payload.userId as string;
+
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, message: "Invalid authentication." },
+        { status: 401 }
+      );
+    }
+
+    // 2. Find the logged-in user's registered email
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
       select: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            transactionPinHash: true,
-          },
-        },
+        id: true,
+        email: true,
+        transactionPinHash: true,
       },
     });
 
-    // Generic response to avoid revealing whether an account exists
-    const genericMessage =
-      "If your approved account is eligible, an OTP will be sent to its registered email.";
-
-    if (!kyc?.user || !kyc.user.transactionPinHash) {
-      return NextResponse.json({
-        success: true,
-        message: genericMessage,
-      });
+    if (!user || !user.email || !user.transactionPinHash) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Account or transaction PIN not found.",
+        },
+        { status: 404 }
+      );
     }
 
-    const user = kyc.user;
-
-    // Rate limit: maximum 3 OTP requests per hour
+    // 3. Rate limit: maximum 3 requests per hour
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
     const recentOtps = await prisma.pinResetOtp.count({
@@ -74,7 +76,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Prevent another OTP request within 60 seconds
+    // 4. Prevent another request within 60 seconds
     const recentOtp = await prisma.pinResetOtp.findFirst({
       where: {
         userId: user.id,
@@ -83,7 +85,6 @@ export async function POST(request: NextRequest) {
           gte: new Date(Date.now() - 60 * 1000),
         },
       },
-      orderBy: { createdAt: "desc" },
     });
 
     if (recentOtp) {
@@ -96,15 +97,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate a secure 6-digit OTP
+    // 5. Generate and hash a secure 6-digit OTP
     const otp = randomInt(100000, 1000000).toString();
-
-    // Hash OTP before saving it
     const codeHash = await hash(otp, 10);
-
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Save OTP in database
+    // 6. Invalidate older unused OTPs
+    await prisma.pinResetOtp.updateMany({
+      where: {
+        userId: user.id,
+        method: "EMAIL",
+        consumedAt: null,
+      },
+      data: {
+        consumedAt: new Date(),
+      },
+    });
+
+    // 7. Save new OTP
     const savedOtp = await prisma.pinResetOtp.create({
       data: {
         userId: user.id,
@@ -114,7 +124,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Configure Resend
+    // 8. Configure Resend
     const apiKey = process.env.RESEND_API_KEY;
     const fromEmail = process.env.RESEND_FROM_EMAIL;
 
@@ -128,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     const resend = new Resend(apiKey);
 
-    // Send OTP to the registered email only
+    // 9. Send OTP only to the registered email
     const { error } = await resend.emails.send({
       from: fromEmail,
       to: user.email,
@@ -136,19 +146,13 @@ export async function POST(request: NextRequest) {
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 25px;">
           <h2 style="color: #0f766e;">PayNext Security Verification</h2>
-
           <p>You requested to reset your PayNext transaction PIN.</p>
-
           <p>Your verification code is:</p>
-
           <h1 style="letter-spacing: 8px; color: #0f766e;">
             ${otp}
           </h1>
-
           <p>This OTP will expire in <strong>10 minutes</strong>.</p>
-
           <p>If you did not request this code, please ignore this email.</p>
-
           <p style="color: #64748b;">PayNext Security Team</p>
         </div>
       `,
@@ -163,8 +167,9 @@ export async function POST(request: NextRequest) {
       throw new Error("Unable to send OTP email.");
     }
 
-    // Mask email for frontend display
+    // 10. Mask registered email
     const [emailName, domain] = user.email.split("@");
+
     const maskedEmail =
       emailName.length <= 2
         ? `${emailName[0]}***@${domain}`

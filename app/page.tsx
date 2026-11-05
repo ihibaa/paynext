@@ -25,6 +25,7 @@ import {
   Send,
   User,
   AlertTriangle,
+  Menu,
 } from "lucide-react";
 
 type UserData = {
@@ -88,7 +89,9 @@ const navigation = [
 ];
 
 export default function Home() {
+  
   const [user, setUser] = useState<UserData | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
 
@@ -127,8 +130,7 @@ export default function Home() {
   const [pinSetupLoading, setPinSetupLoading] = useState(false);
   const [showForgotPin, setShowForgotPin] = useState(false);
   const [forgotPinOpen, setForgotPinOpen] = useState(false);
-  const [forgotPinStep, setForgotPinStep] = useState<"cnic" | "otp">("cnic");
-  const [forgotCnic, setForgotCnic] = useState("");
+  const [forgotPinStep, setForgotPinStep] = useState<"email" | "otp">("email");
   const [forgotOtp, setForgotOtp] = useState("");
   const [resetNewPin, setResetNewPin] = useState("");
   const [resetConfirmPin, setResetConfirmPin] = useState("");
@@ -290,71 +292,58 @@ async function handlePinSetup(event: React.FormEvent<HTMLFormElement>) {
 
 
   // Send OTP for forgotten transaction PIN
-  async function handleSendPinOtp(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setForgotPinMessage("");
+ 
+async function handleSendPinOtp(event: React.FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+  setForgotPinMessage("");
+  setForgotPinLoading(true);
 
-    if (!/^\d{13}$/.test(forgotCnic)) {
-      setForgotPinMessage(
-        "Enter your valid 13-digit CNIC number without dashes."
-      );
+  try {
+    const response = await fetch("/api/auth/pin/forget/send-otp", {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setForgotPinMessage(data.message || "Unable to send OTP.");
       return;
     }
 
-    setForgotPinLoading(true);
+    setMaskedEmail(
+      data.destination || "your registered email"
+    );
 
-    try {
-      const response = await fetch("/api/auth/pin/forget/send-otp", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          cnic: forgotCnic,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setForgotPinMessage(data.message || "Unable to send OTP.");
-        return;
-      }
-
-      setMaskedEmail(data.maskedEmail || "your registered email");
-      setForgotPinStep("otp");
-      setForgotPinMessage("");
-    } catch (error) {
-      console.error("Send PIN OTP error:", error);
-      setForgotPinMessage("Unable to connect to the server.");
-    } finally {
-      setForgotPinLoading(false);
-    }
+    setForgotPinStep("otp");
+    setForgotPinMessage("");
+  } catch (error) {
+    console.error("Send PIN OTP error:", error);
+    setForgotPinMessage("Unable to connect to the server.");
+  } finally {
+    setForgotPinLoading(false);
   }
+}
 
   // Verify OTP and reset transaction PIN
   async function handleResetPin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setForgotPinMessage("");
 
+    setForgotPinMessage("");
     if (!/^\d{6}$/.test(forgotOtp)) {
       setForgotPinMessage("OTP must contain exactly 6 digits.");
       return;
     }
-
     if (!/^\d{6}$/.test(resetNewPin)) {
       setForgotPinMessage("New PIN must contain exactly 6 digits.");
       return;
     }
-
     if (resetNewPin !== resetConfirmPin) {
       setForgotPinMessage("New PIN and confirmation PIN do not match.");
       return;
     }
-
     setForgotPinLoading(true);
-
     try {
       const response = await fetch("/api/auth/pin/forget/verify-otp", {
         method: "POST",
@@ -363,13 +352,11 @@ async function handlePinSetup(event: React.FormEvent<HTMLFormElement>) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          cnic: forgotCnic,
           otp: forgotOtp,
           newPin: resetNewPin,
           confirmPin: resetConfirmPin,
         }),
       });
-
       const data = await response.json();
 
       if (!response.ok) {
@@ -379,14 +366,13 @@ async function handlePinSetup(event: React.FormEvent<HTMLFormElement>) {
 
       setForgotPinOpen(false);
       setShowForgotPin(false);
-      setForgotPinStep("cnic");
-      setForgotCnic("");
+      setForgotPinStep("email");
       setForgotOtp("");
       setResetNewPin("");
       setResetConfirmPin("");
       setMaskedEmail("");
-
       setTransactionPin("");
+
       setTransferMessage(
         data.message ||
           "Transaction PIN reset successfully. Please enter your new PIN."
@@ -721,6 +707,95 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-slate-800">
       <div className="flex min-h-screen">
+        
+{/* Mobile Sidebar */}
+{showMobileMenu && (
+  <div className="fixed inset-0 z-[100] md:hidden">
+    {/* Background Overlay */}
+    <button
+      type="button"
+      aria-label="Close menu"
+      onClick={() => setShowMobileMenu(false)}
+      className="absolute inset-0 bg-slate-950/50"
+    />
+
+    {/* Drawer */}
+    <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[85vw] flex-col bg-white px-5 py-7 shadow-2xl">
+      <div className="mb-10 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-teal-600 text-white">
+            <Wallet size={24} />
+          </div>
+
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              Pay<span className="text-teal-600">Next</span>
+            </h1>
+            <p className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
+              Digital Wallet
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowMobileMenu(false)}
+          className="rounded-lg bg-slate-100 p-2 text-slate-600"
+          aria-label="Close navigation"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <p className="mb-4 px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+        Main Menu
+      </p>
+
+      <nav className="space-y-2">
+        {navigation.map((item) => {
+          const Icon = item.icon;
+          const active = item.name === "Dashboard";
+
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              onClick={() => setShowMobileMenu(false)}
+              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
+                active
+                  ? "bg-teal-50 text-teal-700"
+                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+              }`}
+            >
+              <Icon size={19} />
+              {item.name}
+
+              {active && (
+                <span className="ml-auto h-2 w-2 rounded-full bg-teal-600" />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="mt-auto rounded-2xl bg-[#10243b] p-5 text-white">
+        <div className="mb-3 flex items-center gap-2">
+          <ShieldCheck className="text-teal-400" size={20} />
+          <span className="text-sm font-semibold">Stay Protected</span>
+        </div>
+
+        <p className="text-xs leading-5 text-slate-300">
+          Keep your account secure with additional verification.
+        </p>
+
+        <div className="mt-4 flex items-center gap-1 text-xs font-semibold text-teal-300">
+          Security matters <LockKeyhole size={13} />
+        </div>
+      </div>
+    </aside>
+  </div>
+)}
+
         {/* Sidebar */}
         <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white px-5 py-7 md:flex">
           <div className="mb-12 flex items-center gap-3 px-2">
@@ -788,6 +863,14 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
         <section className="min-w-0 flex-1">
           {/* Topbar */}
           <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-5 md:px-9">
+            <button
+  type="button"
+  onClick={() => setShowMobileMenu(true)}
+  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 transition hover:bg-teal-50 md:hidden"
+  aria-label="Open navigation menu"
+>
+  <Menu size={22} />
+</button>
             <div>
               <h2 className="text-lg font-bold text-slate-800">
                 Welcome back, {user.fullName.split(" ")[0]}!
@@ -1772,9 +1855,8 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
                     type="button"
                     onClick={() => {
                       setForgotPinOpen(true);
-                      setForgotPinStep("cnic");
+                      setForgotPinStep("email");
                       setForgotPinMessage("");
-                      setForgotCnic("");
                       setForgotOtp("");
                       setResetNewPin("");
                       setResetConfirmPin("");
@@ -1827,8 +1909,8 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  {forgotPinStep === "cnic"
-                    ? "Verify your identity to recover your PIN."
+                  {forgotPinStep === "email"
+                    ? "Receive a verification code on your registered email."
                     : "Verify your email OTP and create a new PIN."}
                 </p>
               </div>
@@ -1857,35 +1939,17 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
               />
             </div>
 
-            {forgotPinStep === "cnic" ? (
+            {forgotPinStep === "email" ? (
               <form onSubmit={handleSendPinOtp}>
-                <label
-                  htmlFor="forgotCnic"
-                  className="mb-2 block text-sm font-semibold text-slate-700"
-                >
-                  CNIC Number
-                </label>
-
-                <input
-                  id="forgotCnic"
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={13}
-                  value={forgotCnic}
-                  onChange={(event) => {
-                    setForgotCnic(
-                      event.target.value.replace(/\D/g, "").slice(0, 13)
-                    );
-                    setForgotPinMessage("");
-                  }}
-                  placeholder="Enter 13-digit CNIC"
-                  disabled={forgotPinLoading}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                />
-
-                <p className="mt-2 text-xs text-slate-400">
-                  Enter the CNIC registered with your approved PayNext KYC.
-                </p>
+                <div className="rounded-xl bg-teal-50 p-4">
+                  <p className="text-sm font-semibold text-teal-800">
+                    Verify Your Email
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-teal-700">
+                    We will send a 6-digit verification code to your registered
+                    PayNext email address.
+                  </p>
+                </div>
 
                 <button
                   type="submit"
@@ -2007,7 +2071,7 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
                   type="button"
                   disabled={forgotPinLoading}
                   onClick={() => {
-                    setForgotPinStep("cnic");
+                    setForgotPinStep("email");
                     setForgotPinMessage("");
                     setForgotOtp("");
                     setResetNewPin("");
@@ -2028,8 +2092,8 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
             )}
 
             <p className="mt-5 text-center text-[11px] leading-5 text-slate-400">
-              Your identity is verified through your approved KYC details. OTP
-              expires after 10 minutes.
+              Your registered email is used for verification. OTP expires after
+              10 minutes.
             </p>
           </div>
         </div>

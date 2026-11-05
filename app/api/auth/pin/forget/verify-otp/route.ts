@@ -1,26 +1,46 @@
+
 import { NextRequest, NextResponse } from "next/server";
-import { createHash } from "crypto";
 import { compare, hash } from "bcryptjs";
+import { jwtVerify } from "jose";
 import { prisma } from "../../../../../lib/prisma";
 
 export async function POST(request: NextRequest) {
   try {
+    // 1. Authenticate logged-in user
+    const token = request.cookies.get("paynext_token")?.value;
+
+    if (!token) {
+      return NextResponse.json(
+        { success: false, message: "Please login first." },
+        { status: 401 }
+      );
+    }
+
+    const secret = process.env.AUTH_SECRET;
+
+    if (!secret) {
+      throw new Error("AUTH_SECRET is missing.");
+    }
+
+    const secretKey = new TextEncoder().encode(secret);
+    const { payload } = await jwtVerify(token, secretKey);
+    const userId = payload.userId as string;
+
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, message: "Invalid authentication." },
+        { status: 401 }
+      );
+    }
+
+    // 2. Read request data
     const body = await request.json();
 
-    const cnic = String(body.cnic ?? "").replace(/[-\s]/g, "");
     const otp = String(body.otp ?? "").trim();
     const pin = String(body.newPin ?? "").trim();
     const confirmPin = String(body.confirmPin ?? "").trim();
 
-    // Validate CNIC
-    if (!/^\d{13}$/.test(cnic)) {
-      return NextResponse.json(
-        { success: false, message: "Please enter a valid 13-digit CNIC." },
-        { status: 400 }
-      );
-    }
-
-    // Validate OTP
+    // 3. Validate OTP
     if (!/^\d{6}$/.test(otp)) {
       return NextResponse.json(
         { success: false, message: "Please enter a valid 6-digit OTP." },
@@ -28,7 +48,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate new PIN
+    // 4. Validate new PIN
     if (!/^\d{6}$/.test(pin)) {
       return NextResponse.json(
         {
@@ -49,35 +69,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify approved KYC using hashed CNIC
-    const cnicHash = createHash("sha256")
-      .update(cnic)
-      .digest("hex");
-
-    const kyc = await prisma.kycApplication.findFirst({
-      where: {
-        cnicHash,
-        status: "APPROVED",
-      },
+    // 5. Find the logged-in user's active OTP
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
       select: {
-        userId: true,
+        id: true,
+        email: true,
+        transactionPinHash: true,
       },
     });
 
-    if (!kyc) {
+    if (!user || !user.transactionPinHash) {
       return NextResponse.json(
         {
           success: false,
-          message: "Identity verification failed.",
+          message: "Account or transaction PIN not found.",
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
-    // Find latest unused email OTP
     const otpRecord = await prisma.pinResetOtp.findFirst({
       where: {
-        userId: kyc.userId,
+        userId: user.id,
         method: "EMAIL",
         consumedAt: null,
       },
@@ -96,10 +110,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check OTP expiry
-    const now = new Date();
-
-    if (otpRecord.expiresAt <= now) {
+    // 6. Check OTP expiry
+    if (otpRecord.expiresAt <= new Date()) {
       return NextResponse.json(
         {
           success: false,
@@ -109,7 +121,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check maximum attempts
+    // 7. Check maximum attempts
     if (otpRecord.attempts >= 5) {
       return NextResponse.json(
         {
@@ -120,7 +132,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Compare entered OTP with stored hash
+    // 8. Verify OTP
     const isOtpValid = await compare(otp, otpRecord.codeHash);
 
     if (!isOtpValid) {
@@ -135,7 +147,19 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      if (updated.count === 1 && otpRecord.attempts + 1 >= 5) {
+      if (updated.count !== 1) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "OTP has changed. Please try again.",
+          },
+          { status: 409 }
+        );
+      }
+
+      const attemptsUsed = otpRecord.attempts + 1;
+
+      if (attemptsUsed >= 5) {
         await prisma.pinResetOtp.updateMany({
           where: {
             id: otpRecord.id,
@@ -151,22 +175,24 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           message:
-            otpRecord.attempts + 1 >= 5
+            attemptsUsed >= 5
               ? "Too many incorrect attempts. Please request a new OTP."
-              : `Incorrect OTP. ${4 - otpRecord.attempts} attempts remaining.`,
+              : `Incorrect OTP. ${5 - attemptsUsed} attempts remaining.`,
         },
-        { status: 400 }
+        { status: attemptsUsed >= 5 ? 429 : 400 }
       );
     }
 
-    // Hash the new PIN
+    // 9. Hash the new transaction PIN
     const newPinHash = await hash(pin, 12);
 
-    // Consume OTP and update PIN in one database transaction
+    // 10. Consume OTP and update PIN atomically
     const resetSuccessful = await prisma.$transaction(async (tx) => {
       const consumed = await tx.pinResetOtp.updateMany({
         where: {
           id: otpRecord.id,
+          userId: user.id,
+          method: "EMAIL",
           consumedAt: null,
           attempts: { lt: 5 },
           expiresAt: { gt: new Date() },
@@ -181,9 +207,7 @@ export async function POST(request: NextRequest) {
       }
 
       await tx.user.update({
-        where: {
-          id: kyc.userId,
-        },
+        where: { id: user.id },
         data: {
           transactionPinHash: newPinHash,
           pinFailedAttempts: 0,
@@ -191,11 +215,23 @@ export async function POST(request: NextRequest) {
         },
       });
 
+      // Invalidate any other unused reset OTPs
+      await tx.pinResetOtp.updateMany({
+        where: {
+          userId: user.id,
+          method: "EMAIL",
+          consumedAt: null,
+        },
+        data: {
+          consumedAt: new Date(),
+        },
+      });
+
       await tx.securityLog.create({
         data: {
-          userId: kyc.userId,
+          userId: user.id,
           action: "TRANSACTION_PIN_RESET",
-          details: "Transaction PIN successfully reset after email OTP verification.",
+          details: "Transaction PIN reset after registered email OTP verification.",
         },
       });
 

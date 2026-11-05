@@ -84,9 +84,8 @@ export default function SettingsPage() {
   // Forgot PIN states
   const [showForgotPin, setShowForgotPin] = useState(false);
   const [forgotPinStep, setForgotPinStep] =
-    useState<"cnic" | "otp">("cnic");
+    useState<"email" | "otp">("email");
 
-  const [forgotCnic, setForgotCnic] = useState("");
   const [forgotOtp, setForgotOtp] = useState("");
   const [resetNewPin, setResetNewPin] = useState("");
   const [resetConfirmPin, setResetConfirmPin] = useState("");
@@ -308,7 +307,7 @@ export default function SettingsPage() {
     }
   }
 
-  // Send OTP for forgotten PIN
+  // Send OTP to registered email for forgotten PIN
   async function handleSendPinOtp(
     event: React.FormEvent<HTMLFormElement>
   ) {
@@ -316,24 +315,13 @@ export default function SettingsPage() {
 
     setForgotPinMessage("");
     setForgotPinError("");
-
-    const cnic = forgotCnic.replace(/\D/g, "");
-
-    if (!/^\d{13}$/.test(cnic)) {
-      setForgotPinError("Please enter a valid 13-digit CNIC number.");
-      return;
-    }
-
     setForgotPinLoading(true);
 
     try {
       const response = await fetch("/api/auth/pin/forget/send-otp", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         credentials: "include",
-        body: JSON.stringify({ cnic }),
+        cache: "no-store",
       });
 
       const data = await response.json();
@@ -343,7 +331,7 @@ export default function SettingsPage() {
         return;
       }
 
-      setMaskedEmail(data.maskedEmail || "your registered email");
+      setMaskedEmail(data.destination || "your registered email");
       setForgotPinStep("otp");
       setForgotPinMessage(
         data.message || "OTP sent to your registered email."
@@ -364,8 +352,6 @@ export default function SettingsPage() {
 
     setForgotPinMessage("");
     setForgotPinError("");
-
-    const cnic = forgotCnic.replace(/\D/g, "");
 
     if (!/^\d{6}$/.test(forgotOtp)) {
       setForgotPinError("Please enter the 6-digit OTP.");
@@ -392,7 +378,6 @@ export default function SettingsPage() {
         },
         credentials: "include",
         body: JSON.stringify({
-          cnic,
           otp: forgotOtp,
           newPin: resetNewPin,
           confirmPin: resetConfirmPin,
@@ -408,17 +393,12 @@ export default function SettingsPage() {
 
       setHasTransactionPin(true);
 
-      setForgotPinMessage(
-        data.message || "Transaction PIN reset successfully."
-      );
-
       setPinMessage(
-        "Your Transaction PIN has been reset successfully."
+        data.message || "Your Transaction PIN has been reset successfully."
       );
 
       setShowForgotPin(false);
-      setForgotPinStep("cnic");
-      setForgotCnic("");
+      setForgotPinStep("email");
       setForgotOtp("");
       setResetNewPin("");
       setResetConfirmPin("");
@@ -439,8 +419,7 @@ export default function SettingsPage() {
 
   function closeForgotPin() {
     setShowForgotPin(false);
-    setForgotPinStep("cnic");
-    setForgotCnic("");
+    setForgotPinStep("email");
     setForgotOtp("");
     setResetNewPin("");
     setResetConfirmPin("");
@@ -977,29 +956,14 @@ export default function SettingsPage() {
                           </div>
                         )}
 
-                        {forgotPinStep === "cnic" ? (
+                        {forgotPinStep === "email" ? (
                           <form
                             onSubmit={handleSendPinOtp}
                             className="space-y-4"
                           >
-                            <div>
-                              <label className="mb-2 block text-xs font-semibold text-slate-600">
-                                Registered CNIC Number
-                              </label>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                maxLength={13}
-                                value={forgotCnic}
-                                onChange={(e) =>
-                                  setForgotCnic(
-                                    e.target.value.replace(/\D/g, "").slice(0, 13)
-                                  )
-                                }
-                                placeholder="Enter 13-digit CNIC without dashes"
-                                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-teal-500"
-                              />
-                            </div>
+                            <p className="rounded-lg bg-teal-50 p-3 text-xs text-teal-800">
+                              We will send a verification OTP to your registered email address.
+                            </p>
 
                             <button
                               type="submit"
@@ -1096,7 +1060,7 @@ export default function SettingsPage() {
                             <button
                               type="button"
                               onClick={() => {
-                                setForgotPinStep("cnic");
+                                setForgotPinStep("email");
                                 setForgotOtp("");
                                 setResetNewPin("");
                                 setResetConfirmPin("");
@@ -1105,7 +1069,7 @@ export default function SettingsPage() {
                               }}
                               className="w-full text-xs font-semibold text-teal-700 hover:text-teal-900"
                             >
-                              Back to CNIC verification
+                              Back
                             </button>
                           </form>
                         )}
