@@ -1,4 +1,5 @@
 
+import { compare } from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { prisma } from "../../../lib/prisma";
@@ -34,13 +35,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Get receiver phone and amount
+    // 3. Get transfer details
     const body = await request.json();
 
     const phone = String(body.phone ?? "").trim();
     const amountInput = String(body.amount ?? "").trim();
+    const transactionPin = String(body.transactionPin ?? "").trim();
 
-    // 4. Validate phone number
+    // 4. Validate transaction PIN
+    if (!/^\d{6}$/.test(transactionPin)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Enter your valid 6-digit transaction PIN.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // 5. Validate phone number
     if (!/^\+?[0-9]{10,15}$/.test(phone)) {
       return NextResponse.json(
         { success: false, message: "Enter a valid phone number." },
@@ -48,7 +61,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 5. Validate transfer amount
+    // 6. Validate transfer amount
     if (!/^\d+(\.\d{1,2})?$/.test(amountInput)) {
       return NextResponse.json(
         { success: false, message: "Enter a valid amount." },
@@ -72,7 +85,160 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 6. Find receiver account
+    // 7. Verify transaction PIN and manage failed attempts
+    const pinCheck = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: senderId },
+        select: {
+          transactionPinHash: true,
+          pinFailedAttempts: true,
+          pinLockedUntil: true,
+        },
+      });
+
+      if (!user || !user.transactionPinHash) {
+        return {
+          success: false,
+          status: 400,
+          message: "Please set up your transaction PIN first.",
+        };
+      }
+
+      const now = new Date();
+      let failedAttempts = user.pinFailedAttempts;
+
+      // Check active PIN lock
+      if (user.pinLockedUntil && user.pinLockedUntil > now) {
+        return {
+          success: false,
+          status: 423,
+          code: "PIN_LOCKED",
+          message: "Transaction PIN is locked. Try again after 15 minutes.",
+        };
+      }
+
+      // Reset expired lock
+      if (user.pinLockedUntil && user.pinLockedUntil <= now) {
+        const reset = await tx.user.updateMany({
+          where: {
+            id: senderId,
+            pinLockedUntil: { lte: now },
+          },
+          data: {
+            pinFailedAttempts: 0,
+            pinLockedUntil: null,
+          },
+        });
+
+        if (reset.count === 0) {
+          return {
+            success: false,
+            status: 409,
+            message: "Please retry your transaction.",
+          };
+        }
+
+        failedAttempts = 0;
+      }
+
+      // Compare entered PIN with stored bcrypt hash
+      const isPinValid = await compare(
+        transactionPin,
+        user.transactionPinHash
+      );
+
+      if (!isPinValid) {
+        const nextAttempts = failedAttempts + 1;
+
+        const lockUntil =
+          nextAttempts >= 3
+            ? new Date(Date.now() + 15 * 60 * 1000)
+            : null;
+
+        // Update failed attempts
+        const updated = await tx.user.updateMany({
+          where: {
+            id: senderId,
+            pinFailedAttempts: failedAttempts,
+          },
+          data: {
+            pinFailedAttempts: { increment: 1 },
+            ...(lockUntil ? { pinLockedUntil: lockUntil } : {}),
+          },
+        });
+
+        if (updated.count === 0) {
+          return {
+            success: false,
+            status: 409,
+            message: "Please retry your transaction.",
+          };
+        }
+
+        await tx.securityLog.create({
+          data: {
+            userId: senderId,
+            action: "TRANSACTION_PIN_FAILED",
+            details: `Incorrect transaction PIN attempt: ${nextAttempts}`,
+          },
+        });
+
+        // Lock after 3 incorrect attempts
+        if (nextAttempts >= 3) {
+          return {
+            success: false,
+            status: 423,
+            code: "PIN_LOCKED",
+            message:
+              "Too many incorrect PIN attempts. Try again after 15 minutes.",
+          };
+        }
+
+        // Incorrect PIN response
+        return {
+          success: false,
+          status: 401,
+          code: "INVALID_PIN",
+          message: `Incorrect PIN. ${3 - nextAttempts} attempts remaining.`,
+        };
+      }
+
+      // Correct PIN: reset failed attempts
+      const resetAttempts = await tx.user.updateMany({
+        where: {
+          id: senderId,
+          pinFailedAttempts: failedAttempts,
+        },
+        data: {
+          pinFailedAttempts: 0,
+          pinLockedUntil: null,
+        },
+      });
+
+      if (resetAttempts.count === 0) {
+        return {
+          success: false,
+          status: 409,
+          message: "Please retry your transaction.",
+        };
+      }
+
+      return { success: true };
+    });
+
+    // 8. Return PIN verification errors
+    if (!pinCheck.success) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "code" in pinCheck ? pinCheck.code : undefined,
+          message: pinCheck.message,
+        },
+        { status: pinCheck.status }
+      );
+    }
+
+    // 9. Find receiver account
     const receiver = await prisma.user.findUnique({
       where: { phone },
       select: {
@@ -92,7 +258,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Prevent self-transfer
+    // 10. Prevent self-transfer
     if (receiver.id === senderId) {
       return NextResponse.json(
         {
@@ -103,7 +269,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 8. Check sender wallet
+    // 11. Check sender wallet
     const senderWallet = await prisma.wallet.findUnique({
       where: { userId: senderId },
     });
@@ -115,10 +281,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 9. Generate transaction reference
+    // 12. Check receiver wallet
+    const receiverWalletExists = await prisma.wallet.findUnique({
+      where: { userId: receiver.id },
+      select: { id: true },
+    });
+
+    if (!receiverWalletExists) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Receiver wallet was not found.",
+        },
+        { status: 404 }
+      );
+    }
+
+    // 13. Generate transaction reference
     const reference = `PN-TRF-${randomUUID()}`;
 
-    // 10. Fraud detection and money transfer
+    // 14. Fraud detection and money transfer
     const result = await prisma.$transaction(async (tx) => {
       const now = new Date();
 
@@ -154,7 +336,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // 11. Calculate fraud risk score
+      // 15. Calculate fraud risk score
       let riskScore = 0;
       const reasons: string[] = [];
 
@@ -173,7 +355,7 @@ export async function POST(request: NextRequest) {
         reasons.push("Frequent transfers within 1 hour");
       }
 
-      // 12. Determine risk level
+      // 16. Determine risk level
       let riskLevel = "LOW";
 
       if (riskScore >= 70) {
@@ -182,7 +364,7 @@ export async function POST(request: NextRequest) {
         riskLevel = "MEDIUM";
       }
 
-      // 13. Block high-risk transactions
+      // 17. Block high-risk transactions
       if (riskLevel === "HIGH") {
         const blockedTransaction = await tx.transaction.create({
           data: {
@@ -222,7 +404,7 @@ export async function POST(request: NextRequest) {
         };
       }
 
-      // 14. Deduct money from sender wallet
+      // 18. Deduct money from sender wallet
       const deduction = await tx.wallet.updateMany({
         where: {
           userId: senderId,
@@ -241,8 +423,8 @@ export async function POST(request: NextRequest) {
         throw new Error("INSUFFICIENT_BALANCE");
       }
 
-      // 15. Add money to receiver wallet
-      const receiverWallet = await tx.wallet.update({
+      // 19. Add money to receiver wallet
+      await tx.wallet.update({
         where: {
           userId: receiver.id,
         },
@@ -253,7 +435,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // 16. Save completed transaction
+      // 20. Save completed transaction
       const transaction = await tx.transaction.create({
         data: {
           reference,
@@ -266,7 +448,7 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // 17. Create medium-risk fraud alert
+      // 21. Create medium-risk fraud alert
       if (riskLevel === "MEDIUM") {
         await tx.fraudAlert.create({
           data: {
@@ -279,7 +461,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      // 18. Save security activity log
+      // 22. Save security activity log
       await tx.securityLog.create({
         data: {
           userId: senderId,
@@ -292,12 +474,11 @@ export async function POST(request: NextRequest) {
         blocked: false,
         riskScore,
         riskLevel,
-        receiverBalance: receiverWallet.balance.toString(),
         transaction,
       };
     });
 
-    // 19. Return blocked transaction response
+    // 23. Return blocked transaction response
     if (result.blocked) {
       return NextResponse.json(
         {
@@ -312,7 +493,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 20. Return successful response
+    // 24. Return successful response
     return NextResponse.json({
       success: true,
       message: "Money transferred successfully!",

@@ -40,6 +40,11 @@ enum FraudStatus {
   CLEARED
 }
 
+enum PinOtpMethod {
+  EMAIL
+  PHONE
+}
+
 model User {
   id           String   @id @default(cuid())
   fullName     String
@@ -47,6 +52,11 @@ model User {
   phone        String   @unique
   passwordHash String
   role         UserRole @default(USER)
+
+  // Transaction PIN Security
+  transactionPinHash String?
+  pinFailedAttempts  Int      @default(0)
+  pinLockedUntil     DateTime?
 
   // Two-Factor Authentication
   twoFactorEnabled       Boolean  @default(false)
@@ -63,6 +73,7 @@ model User {
   receivedTransactions Transaction[] @relation("Receiver")
   securityLogs         SecurityLog[]
   fraudAlerts          FraudAlert[]
+  pinResetOtps         PinResetOtp[]
 }
 
 model Wallet {
@@ -87,9 +98,9 @@ model Transaction {
   description String?
   createdAt   DateTime          @default(now())
 
-  sender      User         @relation("Sender", fields: [senderId], references: [id])
-  receiver    User?        @relation("Receiver", fields: [receiverId], references: [id])
-  fraudAlert  FraudAlert?
+  sender     User         @relation("Sender", fields: [senderId], references: [id])
+  receiver   User?        @relation("Receiver", fields: [receiverId], references: [id])
+  fraudAlert FraudAlert?
 }
 
 model KycApplication {
@@ -124,6 +135,21 @@ model FraudAlert {
   status        FraudStatus @default(REVIEW)
   createdAt     DateTime    @default(now())
 
-  user        User         @relation(fields: [userId], references: [id])
+  user        User        @relation(fields: [userId], references: [id])
   transaction Transaction? @relation(fields: [transactionId], references: [id])
+}
+
+model PinResetOtp {
+  id         String       @id @default(cuid())
+  userId     String
+  method     PinOtpMethod
+  codeHash   String
+  attempts   Int          @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime     @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }

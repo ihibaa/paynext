@@ -5,7 +5,6 @@ import { prisma } from "../../../lib/prisma";
 
 export async function GET(request: NextRequest) {
   try {
-    // Read authentication cookie
     const token = request.cookies.get("paynext_token")?.value;
 
     if (!token) {
@@ -18,7 +17,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Verify authentication token
     const secret = process.env.AUTH_SECRET;
 
     if (!secret) {
@@ -26,9 +24,7 @@ export async function GET(request: NextRequest) {
     }
 
     const secretKey = new TextEncoder().encode(secret);
-
     const { payload } = await jwtVerify(token, secretKey);
-
     const userId = payload.userId;
 
     if (typeof userId !== "string") {
@@ -41,7 +37,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Find authenticated user
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -50,6 +45,11 @@ export async function GET(request: NextRequest) {
         email: true,
         phone: true,
         role: true,
+
+        // Used only to check whether a PIN exists.
+        // Never send the actual hash to the frontend.
+        transactionPinHash: true,
+
         wallet: {
           select: {
             balance: true,
@@ -69,11 +69,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const { transactionPinHash, ...safeUser } = user;
+
     return NextResponse.json({
       success: true,
       message: "Authenticated user found.",
       user: {
-        ...user,
+        ...safeUser,
+        hasTransactionPin: Boolean(transactionPinHash),
         wallet: user.wallet
           ? {
               balance: user.wallet.balance.toString(),
@@ -82,7 +85,6 @@ export async function GET(request: NextRequest) {
           : null,
       },
     });
-
   } catch (error) {
     console.error("Authentication error:", error);
 

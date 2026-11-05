@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -10,7 +9,6 @@ import {
   ArrowLeftRight,
   ShieldCheck,
   Settings,
-  Bell,
   Search,
   ArrowUpRight,
   ArrowDownLeft,
@@ -20,8 +18,6 @@ import {
   Activity,
   CircleHelp,
   ChevronRight,
-  Menu,
-  LogOut,
   Plus,
   X,
   Loader2,
@@ -37,6 +33,7 @@ type UserData = {
   email: string;
   phone: string;
   role: string;
+  hasTransactionPin?: boolean;
   wallet: {
     balance: string;
     currency: string;
@@ -96,7 +93,7 @@ export default function Home() {
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
 
   const [searchTerm, setSearchTerm] = useState("");
-const [showSearchResults, setShowSearchResults] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
 
   const [fraudAlerts, setFraudAlerts] = useState<FraudAlertData[]>([]);
   const [securityLogs, setSecurityLogs] = useState<SecurityLogData[]>([]);
@@ -105,7 +102,6 @@ const [showSearchResults, setShowSearchResults] = useState(false);
   const [loading, setLoading] = useState(true);
   const [walletLoading, setWalletLoading] = useState(false);
   const [error, setError] = useState("");
-  const [loggingOut, setLoggingOut] = useState(false);
 
   // Add Money states
   const [showDepositModal, setShowDepositModal] = useState(false);
@@ -122,6 +118,23 @@ const [showSearchResults, setShowSearchResults] = useState(false);
   const [transferMessage, setTransferMessage] = useState("");
   const [transferSuccess, setTransferSuccess] = useState(false);
   const [receiverName, setReceiverName] = useState("");
+
+  // Transaction PIN states
+  
+  const [transactionPin, setTransactionPin] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [pinSetupLoading, setPinSetupLoading] = useState(false);
+  const [showForgotPin, setShowForgotPin] = useState(false);
+  const [forgotPinOpen, setForgotPinOpen] = useState(false);
+  const [forgotPinStep, setForgotPinStep] = useState<"cnic" | "otp">("cnic");
+  const [forgotCnic, setForgotCnic] = useState("");
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [resetNewPin, setResetNewPin] = useState("");
+  const [resetConfirmPin, setResetConfirmPin] = useState("");
+  const [forgotPinLoading, setForgotPinLoading] = useState(false);
+  const [forgotPinMessage, setForgotPinMessage] = useState("");
+  const [maskedEmail, setMaskedEmail] = useState("");
 
   // Fetch security alerts and activity logs
   async function refreshSecurity() {
@@ -181,7 +194,6 @@ const [showSearchResults, setShowSearchResults] = useState(false);
         setTransactions(walletData.transactions || []);
 
         await refreshSecurity();
-
       } catch (err) {
         console.error("Dashboard loading error:", err);
         setError("Unable to connect to the server.");
@@ -211,6 +223,179 @@ const [showSearchResults, setShowSearchResults] = useState(false);
       }
     } catch (err) {
       console.error("Wallet refresh error:", err);
+    }
+  }
+
+  // Configure transaction PIN
+ 
+async function handlePinSetup(event: React.FormEvent<HTMLFormElement>) {
+  event.preventDefault();
+
+  setTransferMessage("");
+  setShowForgotPin(false);
+
+  if (!/^\d{6}$/.test(newPin)) {
+    setTransferMessage("Transaction PIN must contain exactly 6 digits.");
+    return;
+  }
+
+  if (newPin !== confirmPin) {
+    setTransferMessage("PIN and confirmation PIN do not match.");
+    return;
+  }
+
+  setPinSetupLoading(true);
+
+  try {
+    const response = await fetch("/api/auth/pin/setup", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        pin: newPin,
+        confirmPin,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setTransferMessage(
+        data.message || "Unable to set Transaction PIN."
+      );
+      return;
+    }
+
+    setUser((currentUser) =>
+      currentUser
+        ? { ...currentUser, hasTransactionPin: true }
+        : currentUser
+    );
+
+    setNewPin("");
+    setConfirmPin("");
+    setTransactionPin("");
+    setShowForgotPin(false);
+
+    setTransferMessage("");
+  } catch (error) {
+    console.error("PIN setup error:", error);
+    setTransferMessage("Unable to connect to the server.");
+  } finally {
+    setPinSetupLoading(false);
+  }
+}
+
+
+  // Send OTP for forgotten transaction PIN
+  async function handleSendPinOtp(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setForgotPinMessage("");
+
+    if (!/^\d{13}$/.test(forgotCnic)) {
+      setForgotPinMessage(
+        "Enter your valid 13-digit CNIC number without dashes."
+      );
+      return;
+    }
+
+    setForgotPinLoading(true);
+
+    try {
+      const response = await fetch("/api/auth/pin/forget/send-otp", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cnic: forgotCnic,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setForgotPinMessage(data.message || "Unable to send OTP.");
+        return;
+      }
+
+      setMaskedEmail(data.maskedEmail || "your registered email");
+      setForgotPinStep("otp");
+      setForgotPinMessage("");
+    } catch (error) {
+      console.error("Send PIN OTP error:", error);
+      setForgotPinMessage("Unable to connect to the server.");
+    } finally {
+      setForgotPinLoading(false);
+    }
+  }
+
+  // Verify OTP and reset transaction PIN
+  async function handleResetPin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setForgotPinMessage("");
+
+    if (!/^\d{6}$/.test(forgotOtp)) {
+      setForgotPinMessage("OTP must contain exactly 6 digits.");
+      return;
+    }
+
+    if (!/^\d{6}$/.test(resetNewPin)) {
+      setForgotPinMessage("New PIN must contain exactly 6 digits.");
+      return;
+    }
+
+    if (resetNewPin !== resetConfirmPin) {
+      setForgotPinMessage("New PIN and confirmation PIN do not match.");
+      return;
+    }
+
+    setForgotPinLoading(true);
+
+    try {
+      const response = await fetch("/api/auth/pin/forget/verify-otp", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          cnic: forgotCnic,
+          otp: forgotOtp,
+          newPin: resetNewPin,
+          confirmPin: resetConfirmPin,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setForgotPinMessage(data.message || "Unable to reset PIN.");
+        return;
+      }
+
+      setForgotPinOpen(false);
+      setShowForgotPin(false);
+      setForgotPinStep("cnic");
+      setForgotCnic("");
+      setForgotOtp("");
+      setResetNewPin("");
+      setResetConfirmPin("");
+      setMaskedEmail("");
+
+      setTransactionPin("");
+      setTransferMessage(
+        data.message ||
+          "Transaction PIN reset successfully. Please enter your new PIN."
+      );
+    } catch (error) {
+      console.error("Reset PIN error:", error);
+      setForgotPinMessage("Unable to connect to the server.");
+    } finally {
+      setForgotPinLoading(false);
     }
   }
 
@@ -263,7 +448,6 @@ const [showSearchResults, setShowSearchResults] = useState(false);
       setDepositSuccess(true);
       setDepositMessage(data.message || "Demo money added successfully!");
       setDepositAmount("");
-
     } catch (err) {
       console.error("Deposit error:", err);
       setDepositMessage("Unable to connect to the server.");
@@ -273,117 +457,104 @@ const [showSearchResults, setShowSearchResults] = useState(false);
   }
 
   // Send money to another PayNext user
-  async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+ 
+async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
+  event.preventDefault();
 
-    setTransferMessage("");
-    setTransferSuccess(false);
-    setReceiverName("");
+  setTransferMessage("");
+  setTransferSuccess(false);
+  setReceiverName("");
+  setShowForgotPin(false);
 
-    const amount = Number(transferAmount);
-    const phone = receiverPhone.trim();
+  const amount = Number(transferAmount);
+  const phone = receiverPhone.trim();
 
-    if (!/^\+?[0-9]{10,15}$/.test(phone)) {
-      setTransferMessage("Please enter a valid receiver phone number.");
-      return;
-    }
-
-    if (
-      !transferAmount.trim() ||
-      !Number.isFinite(amount) ||
-      amount < 100 ||
-      amount > 100000 ||
-      !/^\d+(\.\d{1,2})?$/.test(transferAmount.trim())
-    ) {
-      setTransferMessage(
-        "Enter an amount between Rs. 100 and Rs. 100,000."
-      );
-      return;
-    }
-
-    if (amount > Number(wallet?.balance ?? 0)) {
-      setTransferMessage("Insufficient wallet balance.");
-      return;
-    }
-
-    setTransferLoading(true);
-
-    try {
-      const response = await fetch("/api/wallet/transfer", {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          phone,
-          amount: transferAmount.trim(),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.blocked) {
-          await refreshWallet();
-
-          setTransferMessage(
-            `${data.message} Risk Score: ${data.riskScore}/100. Your money was not transferred.`
-          );
-        } else {
-          setTransferMessage(data.message || "Transfer failed.");
-        }
-
-        return;
-      }
-
-      setReceiverName(data.receiver?.name || "PayNext User");
-
-      await refreshWallet();
-
-      setTransferSuccess(true);
-      setTransferMessage(
-        data.message || "Money transferred successfully!"
-      );
-
-      setTransferAmount("");
-      setReceiverPhone("");
-
-    } catch (err) {
-      console.error("Transfer error:", err);
-      setTransferMessage("Unable to connect to the server.");
-    } finally {
-      setTransferLoading(false);
-    }
+  if (!/^\+?[0-9]{10,15}$/.test(phone)) {
+    setTransferMessage("Please enter a valid receiver phone number.");
+    return;
   }
 
-  // Logout function
-  async function handleLogout() {
-    setLoggingOut(true);
-    setError("");
+  if (
+    !transferAmount.trim() ||
+    !Number.isFinite(amount) ||
+    amount < 100 ||
+    amount > 100000 ||
+    !/^\d+(\.\d{1,2})?$/.test(transferAmount.trim())
+  ) {
+    setTransferMessage("Enter an amount between Rs. 100 and Rs. 100,000.");
+    return;
+  }
 
-    try {
-      const response = await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
+  if (amount > Number(wallet?.balance ?? 0)) {
+    setTransferMessage("Insufficient wallet balance.");
+    return;
+  }
 
-      if (response.ok) {
-        setUser(null);
-        setWallet(null);
-        setTransactions([]);
-        setFraudAlerts([]);
-        setSecurityLogs([]);
-        setError("You have been logged out successfully.");
+  if (!/^\d{6}$/.test(transactionPin)) {
+    setTransferMessage("Please enter your 6-digit Transaction PIN.");
+    return;
+  }
+
+  setTransferLoading(true);
+
+  try {
+    const response = await fetch("/api/wallet/transfer", {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        phone,
+        amount: transferAmount.trim(),
+        transactionPin,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (data.blocked) {
+        await refreshWallet();
+        setShowForgotPin(false);
+
+        setTransferMessage(
+          `${data.message} Risk Score: ${data.riskScore}/100. Your money was not transferred.`
+        );
       } else {
-        setError("Logout failed. Please try again.");
+        setTransferMessage(data.message || "Transfer failed.");
+
+        if (
+          data.code === "INVALID_PIN" ||
+          data.code === "PIN_LOCKED"
+        ) {
+          setShowForgotPin(true);
+        } else {
+          setShowForgotPin(false);
+        }
       }
-    } catch {
-      setError("Unable to connect to the server.");
-    } finally {
-      setLoggingOut(false);
+
+      return;
     }
+
+    setReceiverName(data.receiver?.name || "PayNext User");
+
+    await refreshWallet();
+
+    setTransferSuccess(true);
+    setTransferMessage(data.message || "Money transferred successfully!");
+    setTransactionPin("");
+
+    setTransferAmount("");
+    setReceiverPhone("");
+  } catch (err) {
+    console.error("Transfer error:", err);
+    setTransferMessage("Unable to connect to the server.");
+  } finally {
+    setTransferLoading(false);
   }
+}
+
 
   // Format Pakistani currency
   function formatAmount(amount: number | string) {
@@ -468,15 +639,6 @@ const [showSearchResults, setShowSearchResults] = useState(false);
     );
   }
 
-  // Get initials from real user name
-  const initials = user.fullName
-    .trim()
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-
   const balance = formatAmount(wallet?.balance ?? 0);
   const currency = wallet?.currency ?? "PKR";
 
@@ -487,46 +649,66 @@ const [showSearchResults, setShowSearchResults] = useState(false);
 
   const moneyReceived = completedTransactions
     .filter((transaction) => transaction.receiverId === user.id)
-    .reduce(
-      (total, transaction) => total + Number(transaction.amount),
-      0
-    );
+    .reduce((total, transaction) => total + Number(transaction.amount), 0);
 
   const moneySent = completedTransactions
     .filter(
       (transaction) =>
-        transaction.senderId === user.id &&
-        transaction.type !== "DEPOSIT"
+        transaction.senderId === user.id && transaction.type !== "DEPOSIT"
     )
-    .reduce(
-      (total, transaction) => total + Number(transaction.amount),
-      0
-    );
+    .reduce((total, transaction) => total + Number(transaction.amount), 0);
 
   const activeAlerts = fraudAlerts.filter(
     (alert) => alert.status !== "CLEARED"
   );
+
   const searchItems = [
-  { name: "Dashboard", description: "View your wallet dashboard", href: "/" },
-  { name: "Transactions", description: "Search transaction history", href: "/transactions" },
-  { name: "Mobile Top-up", description: "Recharge your mobile", href: "/topup" },
-  { name: "Bill Payments", description: "Pay electricity, gas and water bills", href: "/bill-payments" },
-  { name: "Security Center", description: "View security alerts and activity", href: "/security" },
-  { name: "KYC Verification", description: "Manage identity verification", href: "/kyc" },
-  { name: "Settings", description: "Manage your account settings", href: "/settings" },
-];
+    { name: "Dashboard", description: "View your wallet dashboard", href: "/" },
+    {
+      name: "Transactions",
+      description: "Search transaction history",
+      href: "/transactions",
+    },
+    {
+      name: "Mobile Top-up",
+      description: "Recharge your mobile",
+      href: "/topup",
+    },
+    {
+      name: "Bill Payments",
+      description: "Pay electricity, gas and water bills",
+      href: "/bill-payments",
+    },
+    {
+      name: "Security Center",
+      description: "View security alerts and activity",
+      href: "/security",
+    },
+    {
+      name: "KYC Verification",
+      description: "Manage identity verification",
+      href: "/kyc",
+    },
+    {
+      name: "Settings",
+      description: "Manage your account settings",
+      href: "/settings",
+    },
+  ];
 
-const filteredServices = searchItems.filter((item) =>
-  `${item.name} ${item.description}`
-    .toLowerCase()
-    .includes(searchTerm.toLowerCase())
-);
+  const filteredServices = searchItems.filter((item) =>
+    `${item.name} ${item.description}`
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase())
+  );
 
-const filteredTransactions = transactions.filter((transaction) =>
-  `${transaction.reference} ${transaction.type} ${transaction.status} ${transaction.description || ""}`
-    .toLowerCase()
-    .includes(searchTerm.toLowerCase())
-);
+  const filteredTransactions = transactions.filter((transaction) =>
+    `${transaction.reference} ${transaction.type} ${transaction.status} ${
+      transaction.description || ""
+    }`
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase())
+  );
 
   const blockedAlerts = fraudAlerts.filter(
     (alert) => alert.status === "BLOCKED"
@@ -539,7 +721,6 @@ const filteredTransactions = transactions.filter((transaction) =>
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-slate-800">
       <div className="flex min-h-screen">
-
         {/* Sidebar */}
         <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white px-5 py-7 md:flex">
           <div className="mb-12 flex items-center gap-3 px-2">
@@ -561,38 +742,36 @@ const filteredTransactions = transactions.filter((transaction) =>
             Main Menu
           </p>
 
-        <nav className="space-y-2">
-  {navigation.map((item) => {
-    const Icon = item.icon;
-    const active = item.name === "Dashboard";
+          <nav className="space-y-2">
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const active = item.name === "Dashboard";
 
-    return (
-      <Link
-        key={item.name}
-        href={item.href}
-        className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
-          active
-            ? "bg-teal-50 text-teal-700"
-            : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-        }`}
-      >
-        <Icon size={19} />
-        {item.name}
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
+                    active
+                      ? "bg-teal-50 text-teal-700"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                  }`}
+                >
+                  <Icon size={19} />
+                  {item.name}
 
-        {active && (
-          <span className="ml-auto h-2 w-2 rounded-full bg-teal-600" />
-        )}
-      </Link>
-    );
-  })}
-</nav>
+                  {active && (
+                    <span className="ml-auto h-2 w-2 rounded-full bg-teal-600" />
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
 
           <div className="mt-auto rounded-2xl bg-[#10243b] p-5 text-white">
             <div className="mb-3 flex items-center gap-2">
               <ShieldCheck className="text-teal-400" size={20} />
-              <span className="text-sm font-semibold">
-                Stay Protected
-              </span>
+              <span className="text-sm font-semibold">Stay Protected</span>
             </div>
 
             <p className="text-xs leading-5 text-slate-300">
@@ -608,123 +787,120 @@ const filteredTransactions = transactions.filter((transaction) =>
         {/* Main Content */}
         <section className="min-w-0 flex-1">
           {/* Topbar */}
-<header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-5 md:px-9">
-  <div>
-    <h2 className="text-lg font-bold text-slate-800">
-      Welcome back, {user.fullName.split(" ")[0]}!
-    </h2>
-    <p className="text-xs text-slate-400">
-      Here's your financial overview.
-    </p>
-  </div>
+          <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-5 md:px-9">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">
+                Welcome back, {user.fullName.split(" ")[0]}!
+              </h2>
+              <p className="text-xs text-slate-400">
+                Here's your financial overview.
+              </p>
+            </div>
 
-  {/* Search Bar */}
-  <div className="relative w-full sm:w-64">
-    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 focus-within:border-teal-500">
-      <Search size={17} className="text-slate-400" />
+            {/* Search Bar */}
+            <div className="relative w-full sm:w-64">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 focus-within:border-teal-500">
+                <Search size={17} className="text-slate-400" />
 
-      <input
-        type="text"
-        value={searchTerm}
-        onChange={(e) => {
-          setSearchTerm(e.target.value);
-          setShowSearchResults(true);
-        }}
-        onFocus={() => setShowSearchResults(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            setShowSearchResults(false);
-            setSearchTerm("");
-          }
-        }}
-        placeholder="Search anything..."
-        className="w-full bg-transparent text-xs outline-none"
-      />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setShowSearchResults(true);
+                  }}
+                  onFocus={() => setShowSearchResults(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setShowSearchResults(false);
+                      setSearchTerm("");
+                    }
+                  }}
+                  placeholder="Search anything..."
+                  className="w-full bg-transparent text-xs outline-none"
+                />
 
-      {searchTerm && (
-        <button
-          onClick={() => {
-            setSearchTerm("");
-            setShowSearchResults(false);
-          }}
-          className="text-slate-400 hover:text-slate-700"
-        >
-          <X size={15} />
-        </button>
-      )}
-    </div>
+                {searchTerm && (
+                  <button
+                    onClick={() => {
+                      setSearchTerm("");
+                      setShowSearchResults(false);
+                    }}
+                    className="text-slate-400 hover:text-slate-700"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
 
-    {showSearchResults && searchTerm.trim() && (
-      <div className="absolute right-0 top-full z-50 mt-2 max-h-96 w-full min-w-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
-        {filteredServices.length > 0 && (
-          <>
-            <p className="mb-2 text-xs font-bold uppercase text-slate-400">
-              Services
-            </p>
+              {showSearchResults && searchTerm.trim() && (
+                <div className="absolute right-0 top-full z-50 mt-2 max-h-96 w-full min-w-72 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                  {filteredServices.length > 0 && (
+                    <>
+                      <p className="mb-2 text-xs font-bold uppercase text-slate-400">
+                        Services
+                      </p>
 
-            {filteredServices.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => {
-                  setSearchTerm("");
-                  setShowSearchResults(false);
-                }}
-                className="block rounded-lg p-3 hover:bg-teal-50"
-              >
-                <p className="text-sm font-semibold">{item.name}</p>
-                <p className="text-xs text-slate-400">
-                  {item.description}
-                </p>
-              </Link>
-            ))}
-          </>
-        )}
+                      {filteredServices.map((item) => (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => {
+                            setSearchTerm("");
+                            setShowSearchResults(false);
+                          }}
+                          className="block rounded-lg p-3 hover:bg-teal-50"
+                        >
+                          <p className="text-sm font-semibold">{item.name}</p>
+                          <p className="text-xs text-slate-400">
+                            {item.description}
+                          </p>
+                        </Link>
+                      ))}
+                    </>
+                  )}
 
-        {filteredTransactions.length > 0 && (
-          <>
-            <p className="mb-2 mt-3 border-t pt-3 text-xs font-bold uppercase text-slate-400">
-              Transactions
-            </p>
+                  {filteredTransactions.length > 0 && (
+                    <>
+                      <p className="mb-2 mt-3 border-t pt-3 text-xs font-bold uppercase text-slate-400">
+                        Transactions
+                      </p>
 
-            {filteredTransactions.slice(0, 5).map((transaction) => (
-              <Link
-                key={transaction.id}
-                href="/transactions"
-                onClick={() => {
-                  setSearchTerm("");
-                  setShowSearchResults(false);
-                }}
-                className="block rounded-lg p-3 hover:bg-teal-50"
-              >
-                <p className="text-sm font-semibold">
-                  {transaction.type.replaceAll("_", " ")}
-                </p>
-                <p className="text-xs text-slate-400">
-                  {transaction.reference} · Rs.{" "}
-                  {formatAmount(transaction.amount)}
-                </p>
-              </Link>
-            ))}
-          </>
-        )}
+                      {filteredTransactions.slice(0, 5).map((transaction) => (
+                        <Link
+                          key={transaction.id}
+                          href="/transactions"
+                          onClick={() => {
+                            setSearchTerm("");
+                            setShowSearchResults(false);
+                          }}
+                          className="block rounded-lg p-3 hover:bg-teal-50"
+                        >
+                          <p className="text-sm font-semibold">
+                            {transaction.type.replaceAll("_", " ")}
+                          </p>
+                          <p className="text-xs text-slate-400">
+                            {transaction.reference} · Rs.{" "}
+                            {formatAmount(transaction.amount)}
+                          </p>
+                        </Link>
+                      ))}
+                    </>
+                  )}
 
-        {filteredServices.length === 0 &&
-          filteredTransactions.length === 0 && (
-            <p className="py-5 text-center text-xs text-slate-400">
-              No results found.
-            </p>
-          )}
-      </div>
-    )}
-  </div>
-</header>
+                  {filteredServices.length === 0 &&
+                    filteredTransactions.length === 0 && (
+                      <p className="py-5 text-center text-xs text-slate-400">
+                        No results found.
+                      </p>
+                    )}
+                </div>
+              )}
+            </div>
+          </header>
 
-          {/* Topbar */}
-         
           {/* Dashboard */}
           <div className="mx-auto max-w-7xl px-5 py-8 md:px-9">
-
             <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-bold tracking-tight">
@@ -742,11 +918,10 @@ const filteredTransactions = transactions.filter((transaction) =>
 
             {/* Balance and security cards */}
             <div className="grid gap-5 lg:grid-cols-3">
-
-             <div
-  id="wallet"
-  className="relative overflow-hidden rounded-2xl bg-[#10243b] p-7 text-white shadow-lg lg:col-span-2"
->
+              <div
+                id="wallet"
+                className="relative overflow-hidden rounded-2xl bg-[#10243b] p-7 text-white shadow-lg lg:col-span-2"
+              >
                 <div className="absolute -right-12 -top-16 h-64 w-64 rounded-full border-[35px] border-white/5" />
                 <div className="absolute -bottom-24 right-28 h-48 w-48 rounded-full bg-teal-500/10 blur-2xl" />
 
@@ -785,6 +960,7 @@ const filteredTransactions = transactions.filter((transaction) =>
                         setTransferMessage("");
                         setTransferSuccess(false);
                         setReceiverName("");
+                        setShowForgotPin(false);
                       }}
                       className="flex items-center gap-2 rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
                     >
@@ -814,9 +990,7 @@ const filteredTransactions = transactions.filter((transaction) =>
                   </span>
                 </div>
 
-                <h3 className="mt-5 text-lg font-bold">
-                  Account Security
-                </h3>
+                <h3 className="mt-5 text-lg font-bold">Account Security</h3>
 
                 <p className="mt-2 text-sm leading-6 text-slate-500">
                   Your account security overview and protection status.
@@ -886,62 +1060,57 @@ const filteredTransactions = transactions.filter((transaction) =>
             </div>
 
             {/* Quick Actions */}
-            {/* Quick Actions */}
-<div className="mt-8">
-  <h3 className="mb-4 text-lg font-bold">
-    Quick Services
-  </h3>
+            <div className="mt-8">
+              <h3 className="mb-4 text-lg font-bold">Quick Services</h3>
 
-  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-    {[
-      {
-  name: "Mobile Top-up",
-  icon: Smartphone,
-  href: "/topup",
-},
-      {
-  name: "Bill Payments",
-  icon: CreditCard,
-  href: "/bill-payments",
-},
-      {
-        name: "Transactions",
-        icon: ArrowLeftRight,
-        href: "/transactions",
-      },
-      {
-        name: "Security Center",
-        icon: ShieldCheck,
-        href: "/security",
-      },
-    ].map((service) => {
-      const Icon = service.icon;
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {[
+                  {
+                    name: "Mobile Top-up",
+                    icon: Smartphone,
+                    href: "/topup",
+                  },
+                  {
+                    name: "Bill Payments",
+                    icon: CreditCard,
+                    href: "/bill-payments",
+                  },
+                  {
+                    name: "Transactions",
+                    icon: ArrowLeftRight,
+                    href: "/transactions",
+                  },
+                  {
+                    name: "Security Center",
+                    icon: ShieldCheck,
+                    href: "/security",
+                  },
+                ].map((service) => {
+                  const Icon = service.icon;
 
-      return (
-        <Link
-          key={service.name}
-          href={service.href}
-          className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-center transition hover:-translate-y-1 hover:border-teal-200 hover:shadow-md"
-        >
-          <div className="rounded-xl bg-teal-50 p-3 text-teal-700">
-            <Icon size={23} />
-          </div>
+                  return (
+                    <Link
+                      key={service.name}
+                      href={service.href}
+                      className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-center transition hover:-translate-y-1 hover:border-teal-200 hover:shadow-md"
+                    >
+                      <div className="rounded-xl bg-teal-50 p-3 text-teal-700">
+                        <Icon size={23} />
+                      </div>
 
-          <span className="text-xs font-semibold">
-            {service.name}
-          </span>
-        </Link>
-      );
-    })}
-  </div>
-</div>
+                      <span className="text-xs font-semibold">
+                        {service.name}
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Security Monitoring */}
             <div className="mt-8">
               <div className="mb-5">
-                <h3 className="text-lg font-bold">
-                  Security Monitoring
-                </h3>
+                <h3 className="text-lg font-bold">Security Monitoring</h3>
                 <p className="mt-1 text-xs text-slate-400">
                   Fraud detection and account security activity
                 </p>
@@ -990,9 +1159,7 @@ const filteredTransactions = transactions.filter((transaction) =>
               <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
-                    <h4 className="font-bold">
-                      Fraud Detection Alerts
-                    </h4>
+                    <h4 className="font-bold">Fraud Detection Alerts</h4>
                     <p className="mt-1 text-xs text-slate-400">
                       Suspicious transaction activity
                     </p>
@@ -1053,9 +1220,7 @@ const filteredTransactions = transactions.filter((transaction) =>
 
                         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
                           <div>
-                            <p className="text-xs text-slate-400">
-                              Risk Score
-                            </p>
+                            <p className="text-xs text-slate-400">Risk Score</p>
                             <p className="mt-1 text-lg font-bold text-slate-800">
                               {alert.riskScore}/100
                             </p>
@@ -1092,9 +1257,7 @@ const filteredTransactions = transactions.filter((transaction) =>
               <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
-                    <h4 className="font-bold">
-                      Security Activity Logs
-                    </h4>
+                    <h4 className="font-bold">Security Activity Logs</h4>
                     <p className="mt-1 text-xs text-slate-400">
                       Recent account security events
                     </p>
@@ -1145,20 +1308,18 @@ const filteredTransactions = transactions.filter((transaction) =>
             <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-6 flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold">
-                    Recent Transactions
-                  </h3>
+                  <h3 className="text-lg font-bold">Recent Transactions</h3>
                   <p className="mt-1 text-xs text-slate-400">
                     Your latest wallet activity
                   </p>
                 </div>
 
                 <Link
-  href="/transactions"
-  className="flex items-center gap-1 text-xs font-semibold text-teal-700 transition hover:text-teal-800"
->
-  View All <ChevronRight size={15} />
-</Link>
+                  href="/transactions"
+                  className="flex items-center gap-1 text-xs font-semibold text-teal-700 transition hover:text-teal-800"
+                >
+                  View All <ChevronRight size={15} />
+                </Link>
               </div>
 
               {walletLoading ? (
@@ -1222,9 +1383,7 @@ const filteredTransactions = transactions.filter((transaction) =>
 
                         <p
                           className={`shrink-0 text-sm font-bold ${
-                            incoming
-                              ? "text-teal-600"
-                              : "text-slate-800"
+                            incoming ? "text-teal-600" : "text-slate-800"
                           }`}
                         >
                           {incoming ? "+" : "-"} Rs.{" "}
@@ -1283,9 +1442,7 @@ const filteredTransactions = transactions.filter((transaction) =>
             </div>
 
             <div className="mb-5 rounded-xl bg-[#10243b] p-4 text-white">
-              <p className="text-xs text-slate-300">
-                Current Wallet Balance
-              </p>
+              <p className="text-xs text-slate-300">Current Wallet Balance</p>
               <p className="mt-2 text-2xl font-bold">
                 {currency} {balance}
               </p>
@@ -1300,9 +1457,7 @@ const filteredTransactions = transactions.filter((transaction) =>
               </label>
 
               <div className="flex items-center rounded-xl border border-slate-200 px-4 transition focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-100">
-                <span className="font-semibold text-slate-400">
-                  Rs.
-                </span>
+                <span className="font-semibold text-slate-400">Rs.</span>
                 <input
                   id="depositAmount"
                   type="number"
@@ -1383,8 +1538,8 @@ const filteredTransactions = transactions.filter((transaction) =>
             </form>
 
             <p className="mt-4 text-center text-[11px] leading-5 text-slate-400">
-              This is a simulated educational transaction.
-              No real money will be transferred.
+              This is a simulated educational transaction. No real money will
+              be transferred.
             </p>
 
             {depositSuccess && (
@@ -1407,16 +1562,13 @@ const filteredTransactions = transactions.filter((transaction) =>
       {showTransferModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
           <div className="my-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
-
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-600">
                   <Send size={24} />
                 </div>
 
-                <h2 className="text-xl font-bold text-slate-800">
-                  Send Money
-                </h2>
+                <h2 className="text-xl font-bold text-slate-800">Send Money</h2>
 
                 <p className="mt-1 text-sm text-slate-500">
                   Transfer money to another PayNext user.
@@ -1429,6 +1581,7 @@ const filteredTransactions = transactions.filter((transaction) =>
                     setShowTransferModal(false);
                     setTransferMessage("");
                     setTransferSuccess(false);
+                    setShowForgotPin(false);
                   }
                 }}
                 disabled={transferLoading}
@@ -1440,9 +1593,7 @@ const filteredTransactions = transactions.filter((transaction) =>
 
             {/* Current Balance */}
             <div className="mb-5 rounded-xl bg-[#10243b] p-4 text-white">
-              <p className="text-xs text-slate-300">
-                Available Wallet Balance
-              </p>
+              <p className="text-xs text-slate-300">Available Wallet Balance</p>
 
               <p className="mt-2 text-2xl font-bold">
                 {currency} {balance}
@@ -1466,9 +1617,7 @@ const filteredTransactions = transactions.filter((transaction) =>
 
                 <div className="mt-5 rounded-xl bg-slate-50 p-4 text-left">
                   <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-                    <span className="text-xs text-slate-500">
-                      Sent to
-                    </span>
+                    <span className="text-xs text-slate-500">Sent to</span>
                     <span className="text-sm font-semibold text-slate-800">
                       {receiverName}
                     </span>
@@ -1524,7 +1673,8 @@ const filteredTransactions = transactions.filter((transaction) =>
                 </div>
 
                 <p className="mt-2 text-xs text-slate-400">
-                  Enter the phone number linked to the receiver's PayNext account.
+                  Enter the phone number linked to the receiver's PayNext
+                  account.
                 </p>
 
                 <label
@@ -1535,9 +1685,7 @@ const filteredTransactions = transactions.filter((transaction) =>
                 </label>
 
                 <div className="flex items-center rounded-xl border border-slate-200 px-4 transition focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-100">
-                  <span className="font-semibold text-slate-400">
-                    Rs.
-                  </span>
+                  <span className="font-semibold text-slate-400">Rs.</span>
 
                   <input
                     id="transferAmount"
@@ -1577,11 +1725,65 @@ const filteredTransactions = transactions.filter((transaction) =>
                   ))}
                 </div>
 
+                {/* Transaction PIN */}
+                <label
+                  htmlFor="transactionPin"
+                  className="mb-2 mt-5 block text-sm font-semibold text-slate-700"
+                >
+                  Transaction PIN
+                </label>
+
+                <div className="flex items-center rounded-xl border border-slate-200 px-4 transition focus-within:border-teal-500 focus-within:ring-2 focus-within:ring-teal-100">
+                  <LockKeyhole size={18} className="shrink-0 text-slate-400" />
+
+                  <input
+                    id="transactionPin"
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={transactionPin}
+                    onChange={(event) => {
+                      setTransactionPin(
+                        event.target.value.replace(/\D/g, "").slice(0, 6)
+                      );
+                      setTransferMessage("");
+                      setShowForgotPin(false);
+                    }}
+                    placeholder="Enter your 6-digit PIN"
+                    disabled={transferLoading}
+                    className="w-full border-0 bg-transparent px-3 py-4 text-sm text-slate-800 outline-none"
+                  />
+                </div>
+
+                <p className="mt-2 text-xs text-slate-400">
+                  Enter your separate 6-digit security PIN to authorize this
+                  transfer.
+                </p>
+
                 {transferMessage && (
                   <div className="mt-4 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-600">
                     <AlertTriangle size={17} className="mt-0.5 shrink-0" />
                     <p>{transferMessage}</p>
                   </div>
+                )}
+
+                {showForgotPin && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotPinOpen(true);
+                      setForgotPinStep("cnic");
+                      setForgotPinMessage("");
+                      setForgotCnic("");
+                      setForgotOtp("");
+                      setResetNewPin("");
+                      setResetConfirmPin("");
+                      setMaskedEmail("");
+                    }}
+                    className="mt-3 text-sm font-semibold text-teal-700 underline underline-offset-4 hover:text-teal-800"
+                  >
+                    Forgot Transaction PIN?
+                  </button>
                 )}
 
                 <button
@@ -1603,9 +1805,231 @@ const filteredTransactions = transactions.filter((transaction) =>
                 </button>
               </form>
             )}
-
             <p className="mt-4 text-center text-[11px] leading-5 text-slate-400">
               Educational simulation only. No real money is transferred.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Forgot Transaction PIN Modal */}
+      {forgotPinOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+          <div className="my-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+            <div className="mb-6 flex items-center justify-between">
+              <div>
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-600">
+                  <LockKeyhole size={25} />
+                </div>
+
+                <h2 className="text-xl font-bold text-slate-800">
+                  Reset Transaction PIN
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  {forgotPinStep === "cnic"
+                    ? "Verify your identity to recover your PIN."
+                    : "Verify your email OTP and create a new PIN."}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!forgotPinLoading) {
+                    setForgotPinOpen(false);
+                    setForgotPinMessage("");
+                  }
+                }}
+                disabled={forgotPinLoading}
+                className="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 disabled:opacity-50"
+              >
+                <X size={19} />
+              </button>
+            </div>
+
+            <div className="mb-6 flex items-center gap-2">
+              <div className="h-1.5 flex-1 rounded-full bg-teal-500" />
+              <div
+                className={`h-1.5 flex-1 rounded-full ${
+                  forgotPinStep === "otp" ? "bg-teal-500" : "bg-slate-200"
+                }`}
+              />
+            </div>
+
+            {forgotPinStep === "cnic" ? (
+              <form onSubmit={handleSendPinOtp}>
+                <label
+                  htmlFor="forgotCnic"
+                  className="mb-2 block text-sm font-semibold text-slate-700"
+                >
+                  CNIC Number
+                </label>
+
+                <input
+                  id="forgotCnic"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={13}
+                  value={forgotCnic}
+                  onChange={(event) => {
+                    setForgotCnic(
+                      event.target.value.replace(/\D/g, "").slice(0, 13)
+                    );
+                    setForgotPinMessage("");
+                  }}
+                  placeholder="Enter 13-digit CNIC"
+                  disabled={forgotPinLoading}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+
+                <p className="mt-2 text-xs text-slate-400">
+                  Enter the CNIC registered with your approved PayNext KYC.
+                </p>
+
+                <button
+                  type="submit"
+                  disabled={forgotPinLoading}
+                  className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-3.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                >
+                  {forgotPinLoading ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Sending OTP...
+                    </>
+                  ) : (
+                    "Send Email OTP"
+                  )}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleResetPin}>
+                <div className="mb-5 rounded-xl bg-teal-50 p-4">
+                  <p className="text-xs text-teal-700">
+                    An OTP has been sent to your registered email:
+                  </p>
+                  <p className="mt-1 break-all text-sm font-bold text-teal-800">
+                    {maskedEmail}
+                  </p>
+                </div>
+
+                <label
+                  htmlFor="forgotOtp"
+                  className="mb-2 block text-sm font-semibold text-slate-700"
+                >
+                  Email OTP
+                </label>
+
+                <input
+                  id="forgotOtp"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={forgotOtp}
+                  onChange={(event) => {
+                    setForgotOtp(
+                      event.target.value.replace(/\D/g, "").slice(0, 6)
+                    );
+                    setForgotPinMessage("");
+                  }}
+                  placeholder="Enter 6-digit OTP"
+                  disabled={forgotPinLoading}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+
+                <label
+                  htmlFor="resetNewPin"
+                  className="mb-2 mt-5 block text-sm font-semibold text-slate-700"
+                >
+                  New Transaction PIN
+                </label>
+
+                <input
+                  id="resetNewPin"
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={resetNewPin}
+                  onChange={(event) => {
+                    setResetNewPin(
+                      event.target.value.replace(/\D/g, "").slice(0, 6)
+                    );
+                    setForgotPinMessage("");
+                  }}
+                  placeholder="Enter new 6-digit PIN"
+                  disabled={forgotPinLoading}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+
+                <label
+                  htmlFor="resetConfirmPin"
+                  className="mb-2 mt-5 block text-sm font-semibold text-slate-700"
+                >
+                  Confirm New PIN
+                </label>
+
+                <input
+                  id="resetConfirmPin"
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={resetConfirmPin}
+                  onChange={(event) => {
+                    setResetConfirmPin(
+                      event.target.value.replace(/\D/g, "").slice(0, 6)
+                    );
+                    setForgotPinMessage("");
+                  }}
+                  placeholder="Confirm new 6-digit PIN"
+                  disabled={forgotPinLoading}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+                />
+
+                <button
+                  type="submit"
+                  disabled={forgotPinLoading}
+                  className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-3.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                >
+                  {forgotPinLoading ? (
+                    <>
+                      <Loader2 size={18} className="animate-spin" />
+                      Verifying...
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={18} />
+                      Verify OTP & Reset PIN
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={forgotPinLoading}
+                  onClick={() => {
+                    setForgotPinStep("cnic");
+                    setForgotPinMessage("");
+                    setForgotOtp("");
+                    setResetNewPin("");
+                    setResetConfirmPin("");
+                  }}
+                  className="mt-3 w-full text-sm font-semibold text-slate-500 hover:text-teal-700"
+                >
+                  Back
+                </button>
+              </form>
+            )}
+
+            {forgotPinMessage && (
+              <div className="mt-4 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-600">
+                <AlertTriangle size={17} className="mt-0.5 shrink-0" />
+                <p>{forgotPinMessage}</p>
+              </div>
+            )}
+
+            <p className="mt-5 text-center text-[11px] leading-5 text-slate-400">
+              Your identity is verified through your approved KYC details. OTP
+              expires after 10 minutes.
             </p>
           </div>
         </div>
