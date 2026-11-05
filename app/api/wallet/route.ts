@@ -1,3 +1,4 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 import { prisma } from "../../lib/prisma";
@@ -13,7 +14,6 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Use the same secret as the login API
     const secret = process.env.AUTH_SECRET;
 
     if (!secret) {
@@ -21,8 +21,6 @@ export async function GET(request: NextRequest) {
     }
 
     const secretKey = new TextEncoder().encode(secret);
-
-    // Verify login token
     const { payload } = await jwtVerify(token, secretKey);
 
     const userId = payload.userId as string;
@@ -34,7 +32,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get wallet from database
+    // Get logged-in user's wallet
     const wallet = await prisma.wallet.findUnique({
       where: { userId },
     });
@@ -46,7 +44,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get latest transactions
+    // Get latest 10 transactions for dashboard
     const transactions = await prisma.transaction.findMany({
       where: {
         OR: [
@@ -54,19 +52,52 @@ export async function GET(request: NextRequest) {
           { receiverId: userId },
         ],
       },
+      include: {
+        sender: {
+          select: {
+            fullName: true,
+            phone: true,
+          },
+        },
+      },
       orderBy: {
         createdAt: "desc",
       },
       take: 10,
     });
 
+    // Get ALL incoming transactions for Receive Money history
+    const incomingTransactions = await prisma.transaction.findMany({
+      where: {
+        receiverId: userId,
+      },
+      include: {
+        sender: {
+          select: {
+            fullName: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
     return NextResponse.json({
       success: true,
+
       wallet: {
         balance: wallet.balance.toString(),
         currency: wallet.currency,
       },
+
       transactions: transactions.map((transaction) => ({
+        ...transaction,
+        amount: transaction.amount.toString(),
+      })),
+
+      incomingTransactions: incomingTransactions.map((transaction) => ({
         ...transaction,
         amount: transaction.amount.toString(),
       })),

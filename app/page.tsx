@@ -42,6 +42,7 @@ type UserData = {
 };
 
 type TransactionData = {
+  
   id: string;
   reference: string;
   senderId: string;
@@ -51,6 +52,12 @@ type TransactionData = {
   status: string;
   description: string | null;
   createdAt: string;
+};
+type IncomingTransactionData = TransactionData & {
+  sender: {
+    fullName: string;
+    phone: string;
+  } | null;
 };
 
 type WalletData = {
@@ -94,6 +101,10 @@ export default function Home() {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [transactions, setTransactions] = useState<TransactionData[]>([]);
+  const [incomingTransactions, setIncomingTransactions] =
+  useState<IncomingTransactionData[]>([]);
+
+const [showReceiveModal, setShowReceiveModal] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -158,6 +169,7 @@ export default function Home() {
       console.error("Security refresh error:", err);
     } finally {
       setSecurityLoading(false);
+      
     }
   }
 
@@ -192,8 +204,9 @@ export default function Home() {
           return;
         }
 
-        setWallet(walletData.wallet);
-        setTransactions(walletData.transactions || []);
+       setWallet(walletData.wallet);
+setTransactions(walletData.transactions || []);
+setIncomingTransactions(walletData.incomingTransactions || []);
 
         await refreshSecurity();
       } catch (err) {
@@ -220,7 +233,8 @@ export default function Home() {
 
       if (response.ok) {
         setWallet(data.wallet);
-        setTransactions(data.transactions || []);
+setTransactions(data.transactions || []);
+setIncomingTransactions(data.incomingTransactions || []);
         await refreshSecurity();
       }
     } catch (err) {
@@ -1052,12 +1066,13 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
                     </button>
 
                     <button
-                      disabled
-                      className="flex cursor-not-allowed items-center gap-2 rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white opacity-70"
-                    >
-                      <ArrowDownLeft size={17} />
-                      Receive Money
-                    </button>
+  type="button"
+  onClick={() => setShowReceiveModal(true)}
+  className="flex items-center gap-2 rounded-xl border border-white/20 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+>
+  <ArrowDownLeft size={17} />
+  Receive Money
+</button>
                   </div>
                 </div>
               </div>
@@ -1894,210 +1909,374 @@ async function handleSendMoney(event: React.FormEvent<HTMLFormElement>) {
         </div>
       )}
 
-      {/* Forgot Transaction PIN Modal */}
-      {forgotPinOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
-          <div className="my-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-600">
-                  <LockKeyhole size={25} />
-                </div>
+     
+{/* Forgot Transaction PIN Modal */}
+{forgotPinOpen && (
+  <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+    <div className="my-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-600">
+            <LockKeyhole size={25} />
+          </div>
 
-                <h2 className="text-xl font-bold text-slate-800">
-                  Reset Transaction PIN
-                </h2>
+          <h2 className="text-xl font-bold text-slate-800">
+            Reset Transaction PIN
+          </h2>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  {forgotPinStep === "email"
-                    ? "Receive a verification code on your registered email."
-                    : "Verify your email OTP and create a new PIN."}
-                </p>
-              </div>
+          <p className="mt-1 text-sm text-slate-500">
+            {forgotPinStep === "email"
+              ? "Receive a verification code on your registered email."
+              : "Verify your email OTP and create a new PIN."}
+          </p>
+        </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  if (!forgotPinLoading) {
-                    setForgotPinOpen(false);
-                    setForgotPinMessage("");
-                  }
-                }}
-                disabled={forgotPinLoading}
-                className="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 disabled:opacity-50"
-              >
-                <X size={19} />
-              </button>
-            </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (!forgotPinLoading) {
+              setForgotPinOpen(false);
+              setForgotPinMessage("");
+            }
+          }}
+          disabled={forgotPinLoading}
+          className="rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200 disabled:opacity-50"
+        >
+          <X size={19} />
+        </button>
+      </div>
 
-            <div className="mb-6 flex items-center gap-2">
-              <div className="h-1.5 flex-1 rounded-full bg-teal-500" />
-              <div
-                className={`h-1.5 flex-1 rounded-full ${
-                  forgotPinStep === "otp" ? "bg-teal-500" : "bg-slate-200"
-                }`}
-              />
-            </div>
+      <div className="mb-6 flex items-center gap-2">
+        <div className="h-1.5 flex-1 rounded-full bg-teal-500" />
+        <div
+          className={`h-1.5 flex-1 rounded-full ${
+            forgotPinStep === "otp" ? "bg-teal-500" : "bg-slate-200"
+          }`}
+        />
+      </div>
 
-            {forgotPinStep === "email" ? (
-              <form onSubmit={handleSendPinOtp}>
-                <div className="rounded-xl bg-teal-50 p-4">
-                  <p className="text-sm font-semibold text-teal-800">
-                    Verify Your Email
-                  </p>
-                  <p className="mt-2 text-xs leading-5 text-teal-700">
-                    We will send a 6-digit verification code to your registered
-                    PayNext email address.
-                  </p>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={forgotPinLoading}
-                  className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-3.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
-                >
-                  {forgotPinLoading ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      Sending OTP...
-                    </>
-                  ) : (
-                    "Send Email OTP"
-                  )}
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={handleResetPin}>
-                <div className="mb-5 rounded-xl bg-teal-50 p-4">
-                  <p className="text-xs text-teal-700">
-                    An OTP has been sent to your registered email:
-                  </p>
-                  <p className="mt-1 break-all text-sm font-bold text-teal-800">
-                    {maskedEmail}
-                  </p>
-                </div>
-
-                <label
-                  htmlFor="forgotOtp"
-                  className="mb-2 block text-sm font-semibold text-slate-700"
-                >
-                  Email OTP
-                </label>
-
-                <input
-                  id="forgotOtp"
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={forgotOtp}
-                  onChange={(event) => {
-                    setForgotOtp(
-                      event.target.value.replace(/\D/g, "").slice(0, 6)
-                    );
-                    setForgotPinMessage("");
-                  }}
-                  placeholder="Enter 6-digit OTP"
-                  disabled={forgotPinLoading}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                />
-
-                <label
-                  htmlFor="resetNewPin"
-                  className="mb-2 mt-5 block text-sm font-semibold text-slate-700"
-                >
-                  New Transaction PIN
-                </label>
-
-                <input
-                  id="resetNewPin"
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={resetNewPin}
-                  onChange={(event) => {
-                    setResetNewPin(
-                      event.target.value.replace(/\D/g, "").slice(0, 6)
-                    );
-                    setForgotPinMessage("");
-                  }}
-                  placeholder="Enter new 6-digit PIN"
-                  disabled={forgotPinLoading}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                />
-
-                <label
-                  htmlFor="resetConfirmPin"
-                  className="mb-2 mt-5 block text-sm font-semibold text-slate-700"
-                >
-                  Confirm New PIN
-                </label>
-
-                <input
-                  id="resetConfirmPin"
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={resetConfirmPin}
-                  onChange={(event) => {
-                    setResetConfirmPin(
-                      event.target.value.replace(/\D/g, "").slice(0, 6)
-                    );
-                    setForgotPinMessage("");
-                  }}
-                  placeholder="Confirm new 6-digit PIN"
-                  disabled={forgotPinLoading}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
-                />
-
-                <button
-                  type="submit"
-                  disabled={forgotPinLoading}
-                  className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-3.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
-                >
-                  {forgotPinLoading ? (
-                    <>
-                      <Loader2 size={18} className="animate-spin" />
-                      Verifying...
-                    </>
-                  ) : (
-                    <>
-                      <ShieldCheck size={18} />
-                      Verify OTP & Reset PIN
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  disabled={forgotPinLoading}
-                  onClick={() => {
-                    setForgotPinStep("email");
-                    setForgotPinMessage("");
-                    setForgotOtp("");
-                    setResetNewPin("");
-                    setResetConfirmPin("");
-                  }}
-                  className="mt-3 w-full text-sm font-semibold text-slate-500 hover:text-teal-700"
-                >
-                  Back
-                </button>
-              </form>
-            )}
-
-            {forgotPinMessage && (
-              <div className="mt-4 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-600">
-                <AlertTriangle size={17} className="mt-0.5 shrink-0" />
-                <p>{forgotPinMessage}</p>
-              </div>
-            )}
-
-            <p className="mt-5 text-center text-[11px] leading-5 text-slate-400">
-              Your registered email is used for verification. OTP expires after
-              10 minutes.
+      {forgotPinStep === "email" ? (
+        <form onSubmit={handleSendPinOtp}>
+          <div className="rounded-xl bg-teal-50 p-4">
+            <p className="text-sm font-semibold text-teal-800">
+              Verify Your Email
+            </p>
+            <p className="mt-2 text-xs leading-5 text-teal-700">
+              We will send a 6-digit verification code to your registered
+              PayNext email address.
             </p>
           </div>
+
+          <button
+            type="submit"
+            disabled={forgotPinLoading}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-3.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+          >
+            {forgotPinLoading ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Sending OTP...
+              </>
+            ) : (
+              "Send Email OTP"
+            )}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={handleResetPin}>
+          <div className="mb-5 rounded-xl bg-teal-50 p-4">
+            <p className="text-xs text-teal-700">
+              An OTP has been sent to your registered email:
+            </p>
+            <p className="mt-1 break-all text-sm font-bold text-teal-800">
+              {maskedEmail}
+            </p>
+          </div>
+
+          <label
+            htmlFor="forgotOtp"
+            className="mb-2 block text-sm font-semibold text-slate-700"
+          >
+            Email OTP
+          </label>
+
+          <input
+            id="forgotOtp"
+            name="paynext-email-verification-code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={6}
+            value={forgotOtp}
+            onChange={(event) => {
+              setForgotOtp(
+                event.target.value.replace(/\D/g, "").slice(0, 6)
+              );
+              setForgotPinMessage("");
+            }}
+            placeholder="Enter 6-digit OTP"
+            disabled={forgotPinLoading}
+            className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          />
+
+          <label
+            htmlFor="resetNewPin"
+            className="mb-2 mt-5 block text-sm font-semibold text-slate-700"
+          >
+            New Transaction PIN
+          </label>
+
+          <input
+            id="resetNewPin"
+            type="password"
+            inputMode="numeric"
+            maxLength={6}
+            value={resetNewPin}
+            onChange={(event) => {
+              setResetNewPin(
+                event.target.value.replace(/\D/g, "").slice(0, 6)
+              );
+              setForgotPinMessage("");
+            }}
+            placeholder="Enter new 6-digit PIN"
+            disabled={forgotPinLoading}
+            className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          />
+
+          <label
+            htmlFor="resetConfirmPin"
+            className="mb-2 mt-5 block text-sm font-semibold text-slate-700"
+          >
+            Confirm New PIN
+          </label>
+
+          <input
+            id="resetConfirmPin"
+            type="password"
+            inputMode="numeric"
+            maxLength={6}
+            value={resetConfirmPin}
+            onChange={(event) => {
+              setResetConfirmPin(
+                event.target.value.replace(/\D/g, "").slice(0, 6)
+              );
+              setForgotPinMessage("");
+            }}
+            placeholder="Confirm new 6-digit PIN"
+            disabled={forgotPinLoading}
+            className="w-full rounded-xl border border-slate-200 px-4 py-4 text-sm outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+          />
+
+          <button
+            type="submit"
+            disabled={forgotPinLoading}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-5 py-3.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+          >
+            {forgotPinLoading ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Verifying...
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={18} />
+                Verify OTP & Reset PIN
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            disabled={forgotPinLoading}
+            onClick={() => {
+              setForgotPinStep("email");
+              setForgotPinMessage("");
+              setForgotOtp("");
+              setResetNewPin("");
+              setResetConfirmPin("");
+            }}
+            className="mt-3 w-full text-sm font-semibold text-slate-500 hover:text-teal-700"
+          >
+            Back
+          </button>
+        </form>
+      )}
+
+      {forgotPinMessage && (
+        <div className="mt-4 flex items-start gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-600">
+          <AlertTriangle size={17} className="mt-0.5 shrink-0" />
+          <p>{forgotPinMessage}</p>
         </div>
       )}
-    </main>
-  );
+
+      <p className="mt-5 text-center text-[11px] leading-5 text-slate-400">
+        Your registered email is used for verification. OTP expires after
+        10 minutes.
+      </p>
+    </div>
+  </div>
+)}
+
+{/* Receive Money History Modal */}
+{showReceiveModal && (
+  <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
+    <div className="my-auto w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-teal-600">
+            <ArrowDownLeft size={25} />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800">
+            Money Received
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            View all payments received in your PayNext wallet.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowReceiveModal(false)}
+          className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-slate-200"
+          aria-label="Close receive history"
+        >
+          <X size={19} />
+        </button>
+      </div>
+
+      <div className="mb-5 rounded-2xl bg-[#10243b] p-5 text-white">
+        <p className="text-sm text-slate-300">
+          Total Completed Payments Received
+        </p>
+        <h3 className="mt-2 text-3xl font-bold">
+          Rs.{" "}
+          {formatAmount(
+            incomingTransactions
+              .filter((transaction) => transaction.status === "COMPLETED")
+              .reduce(
+                (total, transaction) => total + Number(transaction.amount),
+                0
+              )
+          )}
+        </h3>
+        <p className="mt-2 text-xs text-slate-400">
+          {incomingTransactions.length} incoming transaction(s)
+        </p>
+      </div>
+
+      <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
+        {incomingTransactions.length === 0 ? (
+          <div className="py-12 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+              <ArrowDownLeft size={26} />
+            </div>
+            <h3 className="mt-4 text-sm font-bold text-slate-700">
+              No Money Received Yet
+            </h3>
+            <p className="mt-2 text-xs text-slate-400">
+              Payments sent to your PayNext account will appear here.
+            </p>
+          </div>
+        ) : (
+          incomingTransactions.map((transaction) => (
+            <div
+              key={transaction.id}
+              className="rounded-2xl border border-slate-200 p-4 transition hover:border-teal-200 hover:bg-teal-50/30"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-teal-50 text-sm font-bold text-teal-700">
+                    {transaction.sender?.fullName
+                      ? transaction.sender.fullName
+                          .split(" ")
+                          .map((part) => part[0])
+                          .slice(0, 2)
+                          .join("")
+                          .toUpperCase()
+                      : "IN"}
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-slate-800">
+                      {transaction.sender?.fullName || "Unknown Sender"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {transaction.sender?.phone || "Phone unavailable"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <p className="text-lg font-bold text-teal-600">
+                    + Rs. {formatAmount(transaction.amount)}
+                  </p>
+                  <span
+                    className={`mt-1 inline-block rounded-full px-3 py-1 text-[10px] font-bold ${
+                      transaction.status === "COMPLETED"
+                        ? "bg-teal-50 text-teal-700"
+                        : transaction.status === "PENDING"
+                        ? "bg-amber-50 text-amber-700"
+                        : "bg-red-50 text-red-700"
+                    }`}
+                  >
+                    {transaction.status}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
+                <div className="flex justify-between gap-3 text-xs">
+                  <span className="text-slate-400">Transaction Type</span>
+                  <span className="font-semibold text-slate-700">
+                    {transaction.type.replaceAll("_", " ")}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-3 text-xs">
+                  <span className="text-slate-400">Date & Time</span>
+                  <span className="text-right font-medium text-slate-700">
+                    {formatDate(transaction.createdAt)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-3 text-xs">
+                  <span className="text-slate-400">Reference</span>
+                  <span className="break-all text-right font-medium text-slate-700">
+                    {transaction.reference}
+                  </span>
+                </div>
+
+                {transaction.description && (
+                  <div className="flex justify-between gap-3 text-xs">
+                    <span className="text-slate-400">Description</span>
+                    <span className="text-right font-medium text-slate-700">
+                      {transaction.description}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setShowReceiveModal(false)}
+        className="mt-6 w-full rounded-xl bg-teal-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-teal-700"
+      >
+        Close
+      </button>
+
+      <p className="mt-4 text-center text-[11px] text-slate-400">
+        PayNext Educational Simulation · No real money is transferred.
+      </p>
+    </div>
+  </div>
+)}
+
+</main>
+);
 }

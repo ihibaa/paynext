@@ -524,12 +524,13 @@ export default function SettingsPage() {
         {/* Header */}
         <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className={`rounded-xl border p-2.5 ${panel} ${text}`}
-            >
-              <ArrowLeft size={19} />
-            </Link>
+           <Link
+  href="/"
+  title="Go to PayNext Dashboard"
+  className="flex h-11 w-11 items-center justify-center rounded-xl border border-teal-500/20 bg-teal-500/10 text-teal-400 transition duration-300 hover:scale-105 hover:border-teal-400 hover:bg-teal-500/20"
+>
+  <Wallet size={23} />
+</Link>
 
             <div>
               <h1 className={`text-2xl font-bold ${text}`}>

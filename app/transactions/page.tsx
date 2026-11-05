@@ -127,12 +127,12 @@ export default function TransactionsPage() {
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
             <Link
-              href="/"
-              className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-teal-700"
-            >
-              <ArrowLeft size={17} />
-              Back to Dashboard
-            </Link>
+  href="/"
+  title="Go to PayNext Dashboard"
+  className="flex h-11 w-11 items-center justify-center rounded-xl border border-teal-500/20 bg-teal-500/10 text-teal-400 transition duration-300 hover:scale-105 hover:border-teal-400 hover:bg-teal-500/20"
+>
+  <Wallet size={23} />
+</Link>
 
             <h1 className="text-3xl font-bold text-[#172033]">
               Transactions

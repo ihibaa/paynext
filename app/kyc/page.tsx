@@ -10,6 +10,7 @@ import {
   Clock,
   XCircle,
   FileCheck,
+  Wallet,
 } from "lucide-react";
 
 type Application = {
@@ -105,12 +106,12 @@ export default function KycPage() {
     <main className="min-h-screen bg-[#f5f7fb] px-5 py-10">
       <div className="mx-auto max-w-2xl">
         <Link
-          href="/"
-          className="mb-8 inline-flex items-center gap-2 text-sm font-semibold text-slate-500 hover:text-teal-700"
-        >
-          <ArrowLeft size={17} />
-          Back to Dashboard
-        </Link>
+  href="/"
+  title="Go to PayNext Dashboard"
+  className="flex h-11 w-11 items-center justify-center rounded-xl border border-teal-500/20 bg-teal-500/10 text-teal-400 transition duration-300 hover:scale-105 hover:border-teal-400 hover:bg-teal-500/20"
+>
+  <Wallet size={23} />
+</Link>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm sm:p-10">
           <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-teal-50 text-teal-700">

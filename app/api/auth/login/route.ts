@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       include: { wallet: true },
     });
 
-    // Reject invalid credentials
+    // Reject unknown email
     if (!user) {
       return NextResponse.json(
         {
@@ -45,7 +45,20 @@ export async function POST(request: NextRequest) {
       user.passwordHash
     );
 
+    // Record failed login attempt
     if (!isPasswordValid) {
+      try {
+        await prisma.securityLog.create({
+          data: {
+            userId: user.id,
+            action: "FAILED_LOGIN",
+            details: "A login attempt failed due to an incorrect password.",
+          },
+        });
+      } catch (logError) {
+        console.error("Failed login logging error:", logError);
+      }
+
       return NextResponse.json(
         {
           success: false,
@@ -74,14 +87,18 @@ export async function POST(request: NextRequest) {
       .setExpirationTime("1h")
       .sign(secretKey);
 
-    // Save login activity
-    await prisma.securityLog.create({
-      data: {
-        userId: user.id,
-        action: "USER_LOGIN",
-        details: "User logged in successfully.",
-      },
-    });
+    // Record successful login
+    try {
+      await prisma.securityLog.create({
+        data: {
+          userId: user.id,
+          action: "USER_LOGIN",
+          details: "User logged in successfully.",
+        },
+      });
+    } catch (logError) {
+      console.error("Successful login logging error:", logError);
+    }
 
     // Create response
     const response = NextResponse.json(
@@ -114,7 +131,6 @@ export async function POST(request: NextRequest) {
     });
 
     return response;
-
   } catch (error) {
     console.error("Login error:", error);
 
